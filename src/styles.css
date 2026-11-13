@@ -348,3 +348,16 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 .toast-ok { background: #1f2a22; }
 .toast-error { background: var(--red); }
 @keyframes pop { from { transform: translateY(8px); opacity: 0; } }
+
+/* ---------------- Demo preview ---------------- */
+.banner-demo { background: var(--surface); border-color: var(--line); color: var(--muted); justify-content: space-between; flex-wrap: wrap; }
+.demo-accounts { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.demo-account {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  padding: 12px 14px; min-height: 56px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg);
+}
+.demo-account span { font-weight: 700; color: var(--red); }
+.demo-account small { color: var(--muted); }
+.demo-account:hover { border-color: var(--red); }
+.modal-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); text-align: center; font-weight: 600; }
+.modal-foot a { display: inline-block; padding: 10px; }

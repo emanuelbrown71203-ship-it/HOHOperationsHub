@@ -33,6 +33,9 @@ export default function LeadPicker({ onClose }: { onClose: () => void }) {
           ))}
         </div>
       )}
+      <div className="modal-foot">
+        <Link to="/account" onClick={onClose}>Account &amp; sign out</Link>
+      </div>
     </Modal>
   );
 }

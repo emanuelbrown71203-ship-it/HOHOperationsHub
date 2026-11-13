@@ -1,5 +1,7 @@
+import iconUrl from '../assets/icon.svg';
 import { useState, type FormEvent } from 'react';
-import { supabase, errorMessage } from '../lib/supabase';
+import { supabase, errorMessage, isDemo } from '../lib/supabase';
+import { DEMO_ACCOUNTS } from '../lib/demo';
 
 export default function Login() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -41,19 +43,42 @@ export default function Login() {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <img src="/icon.svg" alt="" width={56} height={56} />
+        <img src={iconUrl} alt="" width={56} height={56} />
         <h1>HOH Operations Hub</h1>
         <p className="muted">Heart of House checklists, waste and equipment logs</p>
 
-        <div className="segmented" role="tablist">
+        {isDemo && (
+          <div className="demo-accounts">
+            <strong>Try the demo as…</strong>
+            {DEMO_ACCOUNTS.map((a) => (
+              <button
+                type="button"
+                key={a.email}
+                className="demo-account"
+                onClick={async () => {
+                  const { error } = await supabase.auth.signInWithPassword({ email: a.email, password: 'demo' });
+                  if (error) setError(errorMessage(error));
+                }}
+              >
+                <span>{a.label}</span>
+                <small>{a.hint}</small>
+              </button>
+            ))}
+            <p className="muted small">This preview uses sample data that stays in your browser. Nothing is saved to the store's real database.</p>
+          </div>
+        )}
+
+        {!isDemo && <div className="segmented" role="tablist">
           <button type="button" role="tab" aria-selected={mode === 'signin'} className={mode === 'signin' ? 'on' : ''} onClick={() => setMode('signin')}>
             Sign in
           </button>
           <button type="button" role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'on' : ''} onClick={() => setMode('signup')}>
             Create account
           </button>
-        </div>
+        </div>}
 
+        {!isDemo && (
+          <>
         {mode === 'signup' && (
           <label className="field">
             <span>Your name (as it should appear on logs)</span>
@@ -76,9 +101,6 @@ export default function Login() {
           />
         </label>
 
-        {error && <div className="form-error">{error}</div>}
-        {notice && <div className="form-notice">{notice}</div>}
-
         <button className="btn btn-primary btn-block" disabled={busy}>
           {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
         </button>
@@ -86,6 +108,11 @@ export default function Login() {
         {mode === 'signup' && (
           <p className="muted small">New accounts need a director's approval before they can see or log anything.</p>
         )}
+          </>
+        )}
+
+        {error && <div className="form-error">{error}</div>}
+        {notice && <div className="form-notice">{notice}</div>}
       </form>
     </div>
   );

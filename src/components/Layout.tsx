@@ -1,9 +1,12 @@
+import iconUrl from '../assets/icon.svg';
 import { useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { SHIFTS, type Shift } from '../lib/types';
 import LeadPicker from './LeadPicker';
 import Icon, { type IconName } from './Icon';
+import { isDemo } from '../lib/supabase';
+import { resetDemo } from '../lib/demo';
 
 const NAV: { to: string; label: string; icon: IconName; managerOnly?: boolean }[] = [
   { to: '/', label: 'Home', icon: 'home' },
@@ -24,7 +27,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="shell">
       <header className="topbar">
         <div className="brand">
-          <img src="/icon.svg" alt="" width={32} height={32} />
+          <img src={iconUrl} alt="" width={32} height={32} />
           <div>
             <div className="brand-name">HOH Operations Hub</div>
             <div className="brand-sub">Heart of House</div>
@@ -75,6 +78,12 @@ export default function Layout({ children }: { children: ReactNode }) {
       </nav>
 
       <main className="content">
+        {isDemo && (
+          <div className="banner banner-demo">
+            <span><strong>Demo with sample data.</strong> Names and entries are examples. Changes stay in this browser only.</span>
+            <button className="btn btn-ghost btn-sm" onClick={resetDemo}>Reset demo</button>
+          </div>
+        )}
         {needsLead && (
           <button className="banner banner-warn" onClick={() => setPickerOpen(true)}>
             <Icon name="alert" />

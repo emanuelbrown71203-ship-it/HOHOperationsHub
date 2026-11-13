@@ -1,3 +1,4 @@
+import iconUrl from '../assets/icon.svg';
 import { useApp } from '../lib/app';
 
 export default function Pending() {
@@ -5,7 +6,7 @@ export default function Pending() {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <img src="/icon.svg" alt="" width={56} height={56} />
+        <img src={iconUrl} alt="" width={56} height={56} />
         <h1>Waiting for approval</h1>
         <p>
           Thanks{profile?.full_name ? `, ${profile.full_name}` : ''}! Your account ({session?.user.email}) has been created.
