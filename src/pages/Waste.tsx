@@ -4,12 +4,16 @@ import { supabase, errorMessage } from '../lib/supabase';
 import { useRealtime } from '../lib/useRealtime';
 import { formatDateTime, formatTime } from '../lib/dates';
 import { downloadCsv } from '../lib/csv';
-import { WASTE_REASONS, WASTE_UNITS, type WasteEntry, type WasteItem } from '../lib/types';
-import RangePicker, { rangeDates, RANGE_LABELS, type RangeKey } from '../components/RangePicker';
+import type { WasteEntry, WasteItem } from '../lib/types';
+import RangePicker, { rangeTitle, useRange } from '../components/RangePicker';
 import Icon from '../components/Icon';
+import Modal from '../components/Modal';
+import { useConfirm } from '../components/Confirm';
 
 export default function Waste() {
-  const { today, shift, ensureActor, actorLeadId, actorName, toast, session, isManager } = useApp();
+  const { today, shift, ensureActor, actorLeadId, actorName, toast, session, isManager, settings } = useApp();
+  const confirm = useConfirm();
+  const [editing, setEditing] = useState<WasteEntry | null>(null);
 
   /* ---- form ---- */
   const [presets, setPresets] = useState<WasteItem[]>([]);
@@ -64,10 +68,10 @@ export default function Waste() {
   }
 
   /* ---- history ---- */
-  const [range, setRange] = useState<RangeKey>('today');
+  const range = useRange(today, 'today');
   const [entries, setEntries] = useState<WasteEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const { from, to } = rangeDates(range, today);
+  const { from, to } = range;
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -105,7 +109,7 @@ export default function Waste() {
   }, [entries]);
 
   async function remove(e: WasteEntry) {
-    if (!confirm(`Delete ${e.quantity} ${e.unit} ${e.item_name}?`)) return;
+    if (!(await confirm({ title: 'Delete this entry?', body: `${e.quantity} ${e.unit} ${e.item_name}, logged by ${e.performed_by_name}.`, confirmLabel: 'Delete', danger: true }))) return;
     const { error } = await supabase.from('waste_entries').delete().eq('id', e.id);
     if (error) return toast(errorMessage(error), 'error');
     toast('Entry deleted');
@@ -121,8 +125,11 @@ export default function Waste() {
   }
 
   return (
-    <div className="page">
-      <h1>Waste Log</h1>
+    <div className="page sec-waste">
+      <div className="page-title">
+        <span className="page-icon"><Icon name="trash" size={22} /></span>
+        <h1>Waste Log</h1>
+      </div>
 
       <div className="two-col">
         <form className="card" onSubmit={submit}>
@@ -152,7 +159,7 @@ export default function Waste() {
             <label className="field">
               <span>Unit</span>
               <select value={unit} onChange={(e) => setUnit(e.target.value)}>
-                {[...new Set([...WASTE_UNITS, unit])].map((u) => (
+                {[...new Set([...settings.waste_units, unit])].map((u) => (
                   <option key={u} value={u}>{u}</option>
                 ))}
               </select>
@@ -162,7 +169,7 @@ export default function Waste() {
           <div className="field">
             <span>Reason</span>
             <div className="chips">
-              {WASTE_REASONS.map((r) => (
+              {settings.waste_reasons.map((r) => (
                 <button type="button" key={r} className={`chip ${reason === r ? 'on' : ''}`} onClick={() => setReason(r)}>
                   {r}
                 </button>
@@ -185,14 +192,14 @@ export default function Waste() {
 
         <div className="stack">
           <div className="row-between wrap">
-            <RangePicker value={range} onChange={setRange} />
+            <RangePicker range={range} />
             <button className="btn btn-ghost btn-sm" onClick={exportCsv} disabled={entries.length === 0}>
               <Icon name="download" size={16} /> Export CSV
             </button>
           </div>
 
           <section className="card">
-            <h2>Summary · {range.endsWith('d') ? 'Last ' : ''}{RANGE_LABELS[range]}</h2>
+            <h2>Summary · {rangeTitle(range.key)}</h2>
             {totals.items.length === 0 ? (
               <p className="muted">No waste logged.</p>
             ) : (
@@ -242,13 +249,18 @@ export default function Waste() {
                           {e.reason}{e.notes ? ` — ${e.notes}` : ''}
                         </span>
                         <span className="muted small">
-                          {range === 'today' ? formatTime(e.logged_at) : formatDateTime(e.logged_at)} · {e.shift} · {e.performed_by_name}
+                          {range.key === 'today' ? formatTime(e.logged_at) : formatDateTime(e.logged_at)} · {e.shift} · {e.performed_by_name}
                         </span>
                       </div>
                       {canDelete && (
-                        <button className="icon-btn" onClick={() => remove(e)} aria-label="Delete entry">
-                          <Icon name="trash" size={18} />
-                        </button>
+                        <div className="entry-actions">
+                          <button className="icon-btn" onClick={() => setEditing(e)} aria-label="Edit entry">
+                            <Icon name="edit" size={18} />
+                          </button>
+                          <button className="icon-btn" onClick={() => remove(e)} aria-label="Delete entry">
+                            <Icon name="trash" size={18} />
+                          </button>
+                        </div>
                       )}
                     </li>
                   );
@@ -258,6 +270,69 @@ export default function Waste() {
           </section>
         </div>
       </div>
+      {editing && <EditWaste entry={editing} onClose={() => setEditing(null)} onSaved={load} />}
     </div>
+  );
+}
+
+function EditWaste({ entry, onClose, onSaved }: { entry: WasteEntry; onClose: () => void; onSaved: () => void }) {
+  const { settings, toast } = useApp();
+  const [item, setItem] = useState(entry.item_name);
+  const [quantity, setQuantity] = useState(String(entry.quantity));
+  const [unit, setUnit] = useState(entry.unit);
+  const [reason, setReason] = useState(entry.reason);
+  const [notes, setNotes] = useState(entry.notes ?? '');
+  const [saving, setSaving] = useState(false);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const qty = Number(quantity);
+    if (!item.trim()) return toast('Enter an item', 'error');
+    if (!(qty > 0)) return toast('Enter a quantity greater than 0', 'error');
+    setSaving(true);
+    const { error } = await supabase
+      .from('waste_entries')
+      .update({ item_name: item.trim(), quantity: qty, unit, reason, notes: notes.trim() || null })
+      .eq('id', entry.id);
+    setSaving(false);
+    if (error) return toast(errorMessage(error), 'error');
+    toast('Entry updated');
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <Modal title="Edit waste entry" onClose={onClose}>
+      <form onSubmit={save}>
+        <label className="field">
+          <span>Item</span>
+          <input value={item} onChange={(e) => setItem(e.target.value)} />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span>Quantity</span>
+            <input type="number" inputMode="decimal" min="0" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Unit</span>
+            <select value={unit} onChange={(e) => setUnit(e.target.value)}>
+              {[...new Set([...settings.waste_units, unit])].map((u) => <option key={u}>{u}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          <span>Reason</span>
+          <select value={reason} onChange={(e) => setReason(e.target.value)}>
+            {[...new Set([...settings.waste_reasons, reason])].map((r) => <option key={r}>{r}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>Notes</span>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </label>
+        <p className="muted small">Logged {formatDateTime(entry.logged_at)} by {entry.performed_by_name}. The name on an entry can't be changed.</p>
+        <button className="btn btn-primary btn-block" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+      </form>
+    </Modal>
   );
 }

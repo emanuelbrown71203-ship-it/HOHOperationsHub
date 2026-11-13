@@ -3,14 +3,28 @@ import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { supabase, errorMessage } from '../lib/supabase';
 import { useRealtime } from '../lib/useRealtime';
-import { formatDateTime, timeAgo } from '../lib/dates';
+import { formatDateTime, formatHours, hoursUntil, timeAgo } from '../lib/dates';
 import { downloadCsv } from '../lib/csv';
-import { EQUIPMENT_LOG_LABELS, type Equipment, type EquipmentLog, type EquipmentLogType } from '../lib/types';
-import RangePicker, { rangeDates, type RangeKey } from '../components/RangePicker';
+import { logTypeLabel, type Equipment, type EquipmentLog } from '../lib/types';
+import RangePicker, { useRange } from '../components/RangePicker';
 import Modal from '../components/Modal';
 import Icon, { categoryIcon } from '../components/Icon';
+import { useConfirm } from '../components/Confirm';
 
-const LOG_TYPES: EquipmentLogType[] = ['filter_change', 'oil_change', 'cleaning', 'maintenance', 'issue'];
+/** Status of an equipment's recurring task (e.g. "Filter change every 12 hrs"). */
+export function trackStatus(eq: Equipment, logs: EquipmentLog[]) {
+  if (!eq.track_action || !eq.track_hours) return null;
+  const action = eq.track_action.toLowerCase();
+  const last = logs.find((l) => l.equipment_id === eq.id && logTypeLabel(l.log_type).toLowerCase() === action);
+  const left = last ? hoursUntil(last.logged_at, eq.track_hours) : -Infinity;
+  return { action: eq.track_action, hours: eq.track_hours, last, left, due: left <= 0, soon: left > 0 && left <= Math.min(2, eq.track_hours / 4) };
+}
+
+export function dueText(t: NonNullable<ReturnType<typeof trackStatus>>) {
+  if (!t.last) return `${t.action} not logged yet`;
+  if (t.due) return `${t.action} overdue by ${formatHours(-t.left)}`;
+  return `${t.action} due in ${formatHours(t.left)}`;
+}
 
 export default function EquipmentPage() {
   const { today, toast } = useApp();
@@ -19,10 +33,11 @@ export default function EquipmentPage() {
   const [recent, setRecent] = useState<EquipmentLog[]>([]);
   const [openIssues, setOpenIssues] = useState<EquipmentLog[]>([]);
   const [history, setHistory] = useState<EquipmentLog[]>([]);
-  const [range, setRange] = useState<RangeKey>('7d');
+  const range = useRange(today, '7d');
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState<EquipmentLog | null>(null);
-  const { from, to } = rangeDates(range, today);
+  const [editing, setEditing] = useState<EquipmentLog | null>(null);
+  const { from, to } = range;
 
   const selectedId = params.get('log');
   const selected = equipment.find((e) => e.id === selectedId) ?? null;
@@ -33,13 +48,7 @@ export default function EquipmentPage() {
       supabase.from('equipment').select('*').eq('active', true).order('sort_order').order('name'),
       supabase.from('equipment_logs').select('*').order('logged_at', { ascending: false }).limit(500),
       supabase.from('equipment_logs').select('*').eq('status', 'open').order('logged_at', { ascending: false }),
-      supabase
-        .from('equipment_logs')
-        .select('*')
-        .gte('log_date', from)
-        .lte('log_date', to)
-        .order('logged_at', { ascending: false })
-        .limit(1000),
+      supabase.from('equipment_logs').select('*').gte('log_date', from).lte('log_date', to).order('logged_at', { ascending: false }).limit(1000),
     ]);
     const err = eq.error || rec.error || open.error || hist.error;
     if (err) toast(errorMessage(err), 'error');
@@ -71,10 +80,6 @@ export default function EquipmentPage() {
     return [...groups.entries()];
   }, [equipment]);
 
-  function lastOf(eqId: string, type?: EquipmentLogType) {
-    return recent.find((l) => l.equipment_id === eqId && (!type || l.log_type === type) && l.log_type !== 'issue');
-  }
-
   function openLog(id: string | null, issue = false) {
     const next = new URLSearchParams(params);
     if (id) next.set('log', id);
@@ -92,7 +97,7 @@ export default function EquipmentPage() {
         formatDateTime(l.logged_at),
         l.shift,
         nameOf(l.equipment_id),
-        EQUIPMENT_LOG_LABELS[l.log_type],
+        logTypeLabel(l.log_type),
         l.notes,
         l.performed_by_name,
         l.log_type === 'issue' ? l.status : '',
@@ -104,9 +109,12 @@ export default function EquipmentPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page sec-equipment">
       <div className="page-head">
-        <h1>Equipment</h1>
+        <div className="page-title">
+          <span className="page-icon"><Icon name="wrench" size={22} /></span>
+          <h1>Equipment</h1>
+        </div>
         <button className="btn btn-danger" onClick={() => openLog(equipment[0]?.id ?? null, true)} disabled={equipment.length === 0}>
           <Icon name="alert" size={18} /> Report issue
         </button>
@@ -115,19 +123,15 @@ export default function EquipmentPage() {
       {openIssues.length > 0 && (
         <section className="card card-alert">
           <h2>Open issues ({openIssues.length})</h2>
-          <ul className="entries">
+          <ul className="issue-list">
             {openIssues.map((l) => (
-              <li key={l.id} className="entry">
+              <li key={l.id} className="issue issue-row">
                 <div className="entry-main">
                   <strong>{nameOf(l.equipment_id)}</strong>
                   <span>{l.notes}</span>
-                  <span className="muted small">
-                    Reported {timeAgo(l.logged_at)} by {l.performed_by_name}
-                  </span>
+                  <span className="meta">Reported {timeAgo(l.logged_at)} by {l.performed_by_name}</span>
                 </div>
-                <button className="btn btn-sm btn-primary" onClick={() => setResolving(l)}>
-                  Resolve
-                </button>
+                <button className="btn btn-sm btn-primary" onClick={() => setResolving(l)}>Resolve</button>
               </li>
             ))}
           </ul>
@@ -137,7 +141,7 @@ export default function EquipmentPage() {
       {loading ? (
         <div className="spinner" />
       ) : equipment.length === 0 ? (
-        <div className="empty">No equipment yet. A lead or director can add it in Setup.</div>
+        <div className="empty">No equipment yet. A lead or director can add it in Setup → Equipment.</div>
       ) : (
         categories.map(([cat, list]) => (
           <section key={cat} className="stack">
@@ -145,24 +149,20 @@ export default function EquipmentPage() {
             <div className="equip-grid">
               {list.map((e) => {
                 const issues = openIssues.filter((i) => i.equipment_id === e.id).length;
-                const last = cat === 'Fryer' ? lastOf(e.id, 'filter_change') : lastOf(e.id);
-                const due = cat === 'Fryer' && (!last || Date.now() - new Date(last.logged_at).getTime() > 12 * 3600 * 1000);
-                const state = issues ? 'issue' : due ? 'due' : 'ok';
+                const t = trackStatus(e, recent);
+                const last = recent.find((l) => l.equipment_id === e.id && l.log_type !== 'issue');
+                const state = issues ? 'issue' : t?.due ? 'due' : t?.soon ? 'soon' : 'ok';
                 return (
                   <button key={e.id} className={`equip-card equip-${state}`} onClick={() => openLog(e.id)}>
                     <div className="equip-top">
                       <span className="equip-icon"><Icon name={categoryIcon(e.category)} size={20} /></span>
                       <span className={`status status-${state}`}>
-                        {issues ? `${issues} issue${issues > 1 ? 's' : ''}` : due ? 'Filter due' : 'OK'}
+                        {issues ? `${issues} issue${issues > 1 ? 's' : ''}` : t?.due ? 'Due now' : t?.soon ? 'Due soon' : 'OK'}
                       </span>
                     </div>
                     <strong className="equip-name">{e.name}</strong>
                     <span className="muted small">
-                      {last
-                        ? `${cat === 'Fryer' ? 'Filtered' : EQUIPMENT_LOG_LABELS[last.log_type]} ${timeAgo(last.logged_at)}`
-                        : cat === 'Fryer'
-                          ? 'No filter change logged'
-                          : 'Nothing logged yet'}
+                      {t ? dueText(t) : last ? `${logTypeLabel(last.log_type)} ${timeAgo(last.logged_at)}` : 'Nothing logged yet'}
                     </span>
                   </button>
                 );
@@ -176,7 +176,7 @@ export default function EquipmentPage() {
         <div className="row-between wrap">
           <h2 className="section-title">History</h2>
           <div className="row-gap wrap">
-            <RangePicker value={range} onChange={setRange} />
+            <RangePicker range={range} />
             <button className="btn btn-ghost btn-sm" onClick={exportCsv} disabled={history.length === 0}>
               <Icon name="download" size={16} /> Export CSV
             </button>
@@ -188,7 +188,7 @@ export default function EquipmentPage() {
           ) : (
             <ul className="entries">
               {history.map((l) => (
-                <LogRow key={l.id} log={l} equipmentName={nameOf(l.equipment_id)} />
+                <LogRow key={l.id} log={l} equipmentName={nameOf(l.equipment_id)} onEdit={() => setEditing(l)} />
               ))}
             </ul>
           )}
@@ -200,25 +200,26 @@ export default function EquipmentPage() {
           key={`${selected.id}-${reportIssue}`}
           equipment={equipment}
           initial={selected}
-          initialType={reportIssue ? 'issue' : null}
+          initialIssue={reportIssue}
           recent={recent}
           onClose={() => openLog(null)}
           onSaved={load}
         />
       )}
-      {resolving && (
-        <ResolveModal log={resolving} equipmentName={nameOf(resolving.equipment_id)} onClose={() => setResolving(null)} onSaved={load} />
-      )}
+      {resolving && <ResolveModal log={resolving} equipmentName={nameOf(resolving.equipment_id)} onClose={() => setResolving(null)} onSaved={load} />}
+      {editing && <EditLogModal log={editing} equipmentName={nameOf(editing.equipment_id)} onClose={() => setEditing(null)} onSaved={load} />}
     </div>
   );
 }
 
-function LogRow({ log, equipmentName }: { log: EquipmentLog; equipmentName: string }) {
+function LogRow({ log, equipmentName, onEdit }: { log: EquipmentLog; equipmentName: string; onEdit?: () => void }) {
+  const { session, isManager } = useApp();
+  const canEdit = onEdit && (log.user_id === session?.user.id || isManager);
   return (
     <li className="entry">
       <div className="entry-main">
         <strong>
-          {equipmentName} · {EQUIPMENT_LOG_LABELS[log.log_type]}
+          {equipmentName} · {logTypeLabel(log.log_type)}
           {log.log_type === 'issue' && (
             <span className={`pill ${log.status === 'open' ? 'pill-danger' : 'pill-ok'}`}>{log.status === 'open' ? 'Open' : 'Resolved'}</span>
           )}
@@ -230,10 +231,15 @@ function LogRow({ log, equipmentName }: { log: EquipmentLog; equipmentName: stri
         {log.status === 'resolved' && (
           <span className="muted small">
             Resolved {log.resolved_at ? formatDateTime(log.resolved_at) : ''} by {log.resolved_by_name}
-            {log.resolution_notes ? ` — ${log.resolution_notes}` : ''}
+            {log.resolution_notes ? ` · ${log.resolution_notes}` : ''}
           </span>
         )}
       </div>
+      {canEdit && (
+        <button className="icon-btn" onClick={onEdit} aria-label="Edit entry">
+          <Icon name="edit" size={18} />
+        </button>
+      )}
     </li>
   );
 }
@@ -241,25 +247,27 @@ function LogRow({ log, equipmentName }: { log: EquipmentLog; equipmentName: stri
 function LogModal({
   equipment,
   initial,
-  initialType,
+  initialIssue,
   recent,
   onClose,
   onSaved,
 }: {
   equipment: Equipment[];
   initial: Equipment;
-  initialType: EquipmentLogType | null;
+  initialIssue: boolean;
   recent: EquipmentLog[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { today, shift, ensureActor, actorLeadId, actorName, toast } = useApp();
+  const { today, shift, ensureActor, actorLeadId, actorName, toast, settings } = useApp();
   const [equipmentId, setEquipmentId] = useState(initial.id);
-  const [type, setType] = useState<EquipmentLogType | null>(initialType ?? (initial.category === 'Fryer' ? 'filter_change' : null));
+  const current = equipment.find((e) => e.id === equipmentId) ?? initial;
+  const [type, setType] = useState<string | null>(initialIssue ? 'issue' : initial.track_action ?? null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
-  const current = equipment.find((e) => e.id === equipmentId) ?? initial;
   const past = recent.filter((l) => l.equipment_id === equipmentId).slice(0, 8);
+  const actions = [...new Set([...settings.equipment_actions, ...(current.track_action ? [current.track_action] : [])])];
+  const t = trackStatus(current, recent);
 
   async function save() {
     if (!type) return toast('Choose what was done', 'error');
@@ -276,13 +284,13 @@ function LogModal({
     });
     setSaving(false);
     if (error) return toast(errorMessage(error), 'error');
-    toast(`${EQUIPMENT_LOG_LABELS[type]} logged for ${current.name}`);
+    toast(`${logTypeLabel(type)} logged for ${current.name}`);
     onSaved();
     onClose();
   }
 
   return (
-    <Modal title={type === 'issue' ? 'Report an issue' : `Log: ${current.name}`} onClose={onClose}>
+    <Modal title={type === 'issue' ? 'Report an issue' : current.name} onClose={onClose}>
       <label className="field">
         <span>Equipment</span>
         <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
@@ -292,14 +300,24 @@ function LogModal({
         </select>
       </label>
 
+      {t && (
+        <div className={`track-note ${t.due ? 'track-due' : ''}`}>
+          <Icon name="clock" size={18} />
+          <span><strong>{t.action}</strong> every {t.hours} hrs · {dueText(t)}</span>
+        </div>
+      )}
+
       <div className="field">
         <span>What was done?</span>
         <div className="chips">
-          {LOG_TYPES.map((t) => (
-            <button type="button" key={t} className={`chip ${type === t ? 'on' : ''} ${t === 'issue' ? 'chip-danger' : ''}`} onClick={() => setType(t)}>
-              {t === 'issue' ? 'Report issue' : EQUIPMENT_LOG_LABELS[t]}
+          {actions.map((a) => (
+            <button type="button" key={a} className={`chip ${type === a ? 'on' : ''}`} onClick={() => setType(a)}>
+              {a}
             </button>
           ))}
+          <button type="button" className={`chip chip-danger ${type === 'issue' ? 'on' : ''}`} onClick={() => setType('issue')}>
+            Report issue
+          </button>
         </div>
       </div>
 
@@ -308,7 +326,7 @@ function LogModal({
         <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={type === 'issue' ? 'e.g. Not holding temperature, error code E4' : ''} />
       </label>
 
-      <button className={`btn btn-block ${type === 'issue' ? 'btn-danger' : 'btn-primary'}`} onClick={save} disabled={saving}>
+      <button className={`btn btn-block ${type === 'issue' ? 'btn-danger btn-solid' : 'btn-primary'}`} onClick={save} disabled={saving}>
         {saving ? 'Saving…' : type === 'issue' ? 'Report issue' : 'Save'}
       </button>
       <p className="muted small center">
@@ -325,6 +343,58 @@ function LogModal({
           </ul>
         </>
       )}
+    </Modal>
+  );
+}
+
+function EditLogModal({ log, equipmentName, onClose, onSaved }: { log: EquipmentLog; equipmentName: string; onClose: () => void; onSaved: () => void }) {
+  const { toast, settings } = useApp();
+  const confirm = useConfirm();
+  const [type, setType] = useState(log.log_type);
+  const [notes, setNotes] = useState(log.notes ?? '');
+  const [saving, setSaving] = useState(false);
+  const actions = [...new Set([...settings.equipment_actions, logTypeLabel(log.log_type)])];
+
+  async function save() {
+    setSaving(true);
+    const patch: Partial<EquipmentLog> = { notes: notes.trim() || null };
+    if (log.log_type !== 'issue') patch.log_type = type;
+    const { error } = await supabase.from('equipment_logs').update(patch).eq('id', log.id);
+    setSaving(false);
+    if (error) return toast(errorMessage(error), 'error');
+    toast('Entry updated');
+    onSaved();
+    onClose();
+  }
+
+  async function remove() {
+    if (!(await confirm({ title: 'Delete this entry?', body: `${equipmentName} · ${logTypeLabel(log.log_type)}, logged by ${log.performed_by_name}.`, confirmLabel: 'Delete', danger: true }))) return;
+    const { error } = await supabase.from('equipment_logs').delete().eq('id', log.id);
+    if (error) return toast(errorMessage(error), 'error');
+    toast('Entry deleted');
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <Modal title={`Edit: ${equipmentName}`} onClose={onClose}>
+      {log.log_type !== 'issue' && (
+        <label className="field">
+          <span>What was done</span>
+          <select value={logTypeLabel(type)} onChange={(e) => setType(e.target.value)}>
+            {actions.map((a) => <option key={a}>{a}</option>)}
+          </select>
+        </label>
+      )}
+      <label className="field">
+        <span>Notes</span>
+        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </label>
+      <p className="muted small">Logged {formatDateTime(log.logged_at)} by {log.performed_by_name}. The name on an entry can't be changed.</p>
+      <div className="confirm-actions">
+        <button className="btn btn-ghost text-danger" onClick={remove}><Icon name="trash" size={16} /> Delete</button>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+      </div>
     </Modal>
   );
 }
@@ -351,9 +421,12 @@ function ResolveModal({ log, equipmentName, onClose, onSaved }: { log: Equipment
 
   return (
     <Modal title={`Resolve: ${equipmentName}`} onClose={onClose}>
-      <p><strong>Issue:</strong> {log.notes}</p>
-      <p className="muted small">Reported {formatDateTime(log.logged_at)} by {log.performed_by_name}</p>
-      <label className="field">
+      <div className="issue">
+        <strong>Issue</strong>
+        <span>{log.notes}</span>
+        <span className="meta">Reported {formatDateTime(log.logged_at)} by {log.performed_by_name}</span>
+      </div>
+      <label className="field" style={{ marginTop: 16 }}>
         <span>How was it fixed? (optional)</span>
         <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Tech replaced thermostat" />
       </label>

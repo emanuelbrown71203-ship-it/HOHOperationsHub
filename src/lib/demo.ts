@@ -4,13 +4,14 @@
  * rules closely enough to show how the real app behaves: Shift Lead attribution,
  * role permissions, one check per item per day, open/resolved issues.
  */
-import { addDays, localDate } from './dates';
+import { addDays, localDate, weekStart } from './dates';
+import { DEFAULT_SETTINGS } from './types';
 
 type Row = Record<string, any>;
 type Db = Record<string, Row[]>;
 type Result = { data: any; error: { message: string; code?: string } | null };
 
-const DB_KEY = 'hoh.demo.db.v1';
+const DB_KEY = 'hoh.demo.db.v2';
 const SESSION_KEY = 'hoh.demo.session.v1';
 
 export const DEMO_ACCOUNTS = [
@@ -67,7 +68,7 @@ function seed(): Db {
   const items: Row[] = [];
   templateDefs.forEach(([name, shift, labels], ti) => {
     const id = `tpl-${ti + 1}`;
-    templates.push({ id, name, shift, sort_order: ti + 1, active: true, created_at: now });
+    templates.push({ id, name, shift, frequency: shift === 'Any' ? 'weekly' : 'daily', sort_order: ti + 1, active: true, created_at: now });
     labels.forEach((label, li) =>
       items.push({ id: `${id}-item-${li + 1}`, template_id: id, label, sort_order: li + 1, active: true, created_at: now }),
     );
@@ -85,6 +86,8 @@ function seed(): Db {
   check(2, 2, today, 'Sam Lee', null, 120);
   // Yesterday: everything done.
   for (const [tpl, n] of [[1, 8], [2, 6], [3, 9]] as const) for (let i = 1; i <= n; i++) check(tpl, i, yesterday, 'Morgan', 'lead-3', 60 * 20 + i);
+  // This week's deep clean: one task done so far.
+  check(4, 1, weekStart(today), 'Avery', 'lead-4', 60 * 30);
 
   const wasteItems: Row[] = [
     ['Filets', 'each'], ['Spicy Filets', 'each'], ['Nuggets', 'each'], ['Strips', 'each'], ['Grilled Filets', 'each'],
@@ -108,7 +111,11 @@ function seed(): Db {
     ['Fryer 1', 'Fryer'], ['Fryer 2', 'Fryer'], ['Fryer 3', 'Fryer'], ['Fryer 4', 'Fryer'], ['Grill', 'Cooking'],
     ['Holding Cabinet', 'Holding'], ['Breading Table', 'Prep'], ['Walk-in Cooler', 'Refrigeration'],
     ['Walk-in Freezer', 'Refrigeration'], ['Dish Machine', 'Cleaning'], ['Ice Machine', 'Other'],
-  ].map(([name, category], i) => ({ id: `eq-${i + 1}`, name, category, sort_order: i + 1, active: true, created_at: now }));
+  ].map(([name, category], i) => ({
+    id: `eq-${i + 1}`, name, category, sort_order: i + 1, active: true, created_at: now,
+    track_action: category === 'Fryer' ? 'Filter change' : name === 'Ice Machine' ? 'Cleaning' : null,
+    track_hours: category === 'Fryer' ? 12 : name === 'Ice Machine' ? 168 : null,
+  }));
 
   const logs: Row[] = [];
   const l = (eq: number, type: string, mins: number, shift: string, by: string, lead: string | null, notes: string | null = null, extra: Row = {}) =>
@@ -118,20 +125,22 @@ function seed(): Db {
       user_id: lead ? 'u-kitchen' : 'u-member', lead_id: lead, performed_by_name: by,
       resolved_at: null, resolved_by_name: null, resolution_notes: null, ...extra,
     });
-  l(1, 'filter_change', 140, 'Mid', 'Taylor', 'lead-2');
-  l(2, 'filter_change', 135, 'Mid', 'Taylor', 'lead-2');
-  l(3, 'filter_change', 60 * 15, 'Closing', 'Avery', 'lead-4');
-  l(4, 'filter_change', 60 * 15, 'Closing', 'Avery', 'lead-4');
+  l(1, 'Filter change', 140, 'Mid', 'Taylor', 'lead-2');
+  l(2, 'Filter change', 135, 'Mid', 'Taylor', 'lead-2');
+  l(3, 'Filter change', 60 * 15, 'Closing', 'Avery', 'lead-4');
+  l(4, 'Filter change', 60 * 10.5, 'Closing', 'Avery', 'lead-4');
+  l(11, 'Cleaning', 60 * 24 * 3, 'Closing', 'Avery', 'lead-4');
   l(3, 'issue', 110, 'Mid', 'Sam Lee', null, 'Oil is slow to come back up to temp after a drop');
-  l(10, 'cleaning', 60 * 16, 'Closing', 'Avery', 'lead-4', 'Deep clean and delime');
+  l(10, 'Cleaning', 60 * 16, 'Closing', 'Avery', 'lead-4', 'Deep clean and delime');
   l(9, 'issue', 60 * 30, 'Mid', 'Morgan', 'lead-3', 'Door gasket torn on the left side', {
     status: 'resolved', resolved_at: minutesAgo(60 * 4), resolved_by_name: 'Alex Rivera', resolution_notes: 'Replaced gasket',
   });
-  l(1, 'oil_change', 60 * 50, 'Closing', 'Avery', 'lead-4');
+  l(1, 'Oil change', 60 * 50, 'Closing', 'Avery', 'lead-4');
 
   return {
     profiles, hoh_leads: leads, checklist_templates: templates, checklist_items: items, checklist_checks: checks,
     waste_items: wasteItems, waste_entries: waste, equipment, equipment_logs: logs,
+    app_settings: [{ id: 1, ...DEFAULT_SETTINGS, store_name: 'Demo Store #0000', updated_at: now }],
   };
 }
 
@@ -224,10 +233,10 @@ const CONFIG_TABLES = ['hoh_leads', 'checklist_templates', 'checklist_items', 'w
 const LOG_TABLES = ['checklist_checks', 'waste_entries', 'equipment_logs'];
 const DEFAULTS: Record<string, Row> = {
   hoh_leads: { active: true, sort_order: 0 },
-  checklist_templates: { shift: 'Any', active: true, sort_order: 0 },
+  checklist_templates: { shift: 'Any', frequency: 'daily', active: true, sort_order: 0 },
   checklist_items: { active: true, sort_order: 0 },
   waste_items: { default_unit: 'each', active: true, sort_order: 0 },
-  equipment: { category: 'Other', active: true, sort_order: 0 },
+  equipment: { category: 'Other', track_action: null, track_hours: null, active: true, sort_order: 0 },
 };
 
 /* ------------------------------------------------------------------ */
@@ -251,6 +260,7 @@ class Query implements PromiseLike<Result> {
   eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
   gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
   lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
+  in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
   order(c: string, opts: { ascending?: boolean } = {}) { this.orders.push([c, opts.ascending !== false]); return this; }
   limit(n: number) { this.max = n; return this; }
   single() { this.one = 'single'; return this; }
@@ -328,7 +338,7 @@ class Query implements PromiseLike<Result> {
       const targets = this.visible();
 
       if (this.op === 'update') {
-        if (CONFIG_TABLES.includes(t) && !isManager()) return this.returning ? this.shape([]) : { data: null, error: null };
+        if ((CONFIG_TABLES.includes(t) || t === 'app_settings') && !isManager()) return this.returning ? this.shape([]) : { data: null, error: null };
         if (t === 'profiles') {
           for (const r of targets) {
             if (r.id !== session.user.id && me()?.role !== 'director') continue;
@@ -434,6 +444,8 @@ export function createDemoClient() {
         data: { user: null, session: null },
         error: { message: 'Creating accounts is turned off in the demo. Use one of the demo account buttons.' },
       }),
+      resetPasswordForEmail: async () => ({ data: {}, error: { message: 'Password emails are turned off in the demo.' } }),
+      updateUser: async () => ({ data: {}, error: { message: 'Passwords can’t be changed in the demo.' } }),
       signOut: async () => {
         setSession(null, 'SIGNED_OUT');
         return { error: null };

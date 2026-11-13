@@ -1,4 +1,4 @@
-import type { Shift } from './types';
+import type { ShiftDef } from './types';
 
 /** YYYY-MM-DD in the device's local time zone. */
 export function localDate(d: Date = new Date()): string {
@@ -13,12 +13,42 @@ export function addDays(date: string, days: number): string {
   return localDate(new Date(y, m - 1, d + days));
 }
 
-/** Default shift from the time of day: Opening until 10:30, Mid until 4:00 PM, then Closing. */
-export function shiftForTime(d: Date = new Date()): Shift {
-  const minutes = d.getHours() * 60 + d.getMinutes();
-  if (minutes < 10 * 60 + 30) return 'Opening';
-  if (minutes < 16 * 60) return 'Mid';
-  return 'Closing';
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+/** The shift that is running now, from the store's shift start times (set in Setup → Store). */
+export function shiftForTime(shifts: ShiftDef[], d: Date = new Date()): string {
+  if (shifts.length === 0) return 'All day';
+  const sorted = [...shifts].sort((a, b) => minutesOf(a.start) - minutesOf(b.start));
+  const now = d.getHours() * 60 + d.getMinutes();
+  let current = sorted[sorted.length - 1]; // before the first start, the last shift (overnight) is still running
+  for (const s of sorted) if (minutesOf(s.start) <= now) current = s;
+  return current.name;
+}
+
+/** Monday of the week containing `date` (weekly checklists are stored on this day). */
+export function weekStart(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const day = new Date(y, m - 1, d).getDay(); // 0 = Sunday
+  return addDays(date, day === 0 ? -6 : 1 - day);
+}
+
+export function formatClock(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  return new Date(2000, 0, 1, h || 0, m || 0).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+export function hoursUntil(iso: string, hours: number): number {
+  return (new Date(iso).getTime() + hours * 3600000 - Date.now()) / 3600000;
+}
+
+export function formatHours(h: number): string {
+  const abs = Math.abs(h);
+  if (abs < 1) return `${Math.max(1, Math.round(abs * 60))} min`;
+  if (abs < 48) return `${Math.round(abs)} hr${Math.round(abs) === 1 ? '' : 's'}`;
+  return `${Math.round(abs / 24)} days`;
 }
 
 export function formatTime(iso: string): string {

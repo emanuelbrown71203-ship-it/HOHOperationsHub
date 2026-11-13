@@ -12,9 +12,12 @@ export default function Checklists() {
   const { progress, loading } = useChecklists(date);
 
   return (
-    <div className="page">
+    <div className="page sec-checklists">
       <div className="page-head">
-        <h1>Shift Checklists</h1>
+        <div className="page-title">
+          <span className="page-icon"><Icon name="check" size={22} /></span>
+          <h1>Checklists</h1>
+        </div>
         <DateNav date={date} today={today} onChange={setDate} />
       </div>
 
@@ -31,7 +34,10 @@ export default function Checklists() {
                 <Ring done={p.done} total={p.total} size={64} stroke={7} />
                 <div className="list-card-body">
                   <div className="list-card-top">
-                    <span className="shift-tag">{p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}</span>
+                    <span className="shift-tag">
+                      {p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}
+                      {p.template.frequency === 'weekly' && ' · Weekly'}
+                    </span>
                     {current && date === today && <span className="pill pill-accent">Now</span>}
                   </div>
                   <h2>{p.template.name}</h2>

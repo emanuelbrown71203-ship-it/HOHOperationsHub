@@ -3,11 +3,12 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { useChecklists } from '../lib/useChecklists';
 import { supabase, errorMessage } from '../lib/supabase';
-import { formatTime } from '../lib/dates';
+import { formatDay, formatTime } from '../lib/dates';
 import type { ChecklistCheck, ChecklistItem } from '../lib/types';
 import Ring from '../components/Ring';
 import DateNav from '../components/DateNav';
 import Icon from '../components/Icon';
+import { useConfirm } from '../components/Confirm';
 
 export default function ChecklistDetail() {
   const { id } = useParams();
@@ -16,6 +17,7 @@ export default function ChecklistDetail() {
   const date = params.get('date') || today;
   const { progress, loading, reload } = useChecklists(date);
   const [busyItem, setBusyItem] = useState<string | null>(null);
+  const confirm = useConfirm();
 
   const p = progress.find((x) => x.template.id === id);
 
@@ -27,7 +29,7 @@ export default function ChecklistDetail() {
         toast(`Only ${check.performed_by_name}'s account or a lead can uncheck this.`, 'error');
         return;
       }
-      if (!confirm(`Uncheck "${item.label}"?`)) return;
+      if (!(await confirm({ title: 'Uncheck this task?', body: `"${item.label}" was checked off by ${check.performed_by_name}.`, confirmLabel: 'Uncheck' }))) return;
       setBusyItem(item.id);
       const { error } = await supabase.from('checklist_checks').delete().eq('id', check.id);
       setBusyItem(null);
@@ -38,7 +40,7 @@ export default function ChecklistDetail() {
       const { error } = await supabase.from('checklist_checks').insert({
         template_id: item.template_id,
         item_id: item.id,
-        check_date: date,
+        check_date: p?.period ?? date,
         lead_id: actorLeadId,
       });
       setBusyItem(null);
@@ -47,10 +49,10 @@ export default function ChecklistDetail() {
     reload();
   }
 
-  if (loading) return <div className="page"><div className="spinner" /></div>;
+  if (loading) return <div className="page sec-checklists"><div className="spinner" /></div>;
   if (!p) {
     return (
-      <div className="page">
+      <div className="page sec-checklists">
         <Link to="/checklists" className="back-link"><Icon name="back" /> Checklists</Link>
         <div className="empty">This checklist was not found.</div>
       </div>
@@ -60,7 +62,7 @@ export default function ChecklistDetail() {
   const complete = p.total > 0 && p.done === p.total;
 
   return (
-    <div className="page narrow">
+    <div className="page narrow sec-checklists">
       <Link to="/checklists" className="back-link"><Icon name="back" /> Checklists</Link>
       <div className="page-head">
         <h1>{p.template.name}</h1>
@@ -70,7 +72,10 @@ export default function ChecklistDetail() {
       <div className={`summary ${complete ? 'summary-done' : ''}`}>
         <Ring done={p.done} total={p.total} size={72} stroke={8} />
         <div>
-          <span className="shift-tag">{p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}</span>
+          <span className="shift-tag">
+            {p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}
+            {p.template.frequency === 'weekly' && ` · Weekly (week of ${formatDay(p.period)})`}
+          </span>
           <strong className="summary-title">{complete ? 'All done!' : `${p.done} of ${p.total} complete`}</strong>
           <span className="muted small">{date !== today ? 'Viewing a past day' : complete ? 'Nice work, team.' : 'Tap a task when it’s done.'}</span>
         </div>

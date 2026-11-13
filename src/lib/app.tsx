@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { localDate, shiftForTime } from './dates';
-import type { HohLead, Profile, Shift } from './types';
+import { DEFAULT_SETTINGS, type AppSettings, type HohLead, type Profile } from './types';
 import { useRealtime } from './useRealtime';
 
 /* ------------------------------------------------------------------ */
@@ -12,16 +12,18 @@ type ToastKind = 'ok' | 'error';
 interface Toast { id: number; text: string; kind: ToastKind }
 
 /* ------------------------------------------------------------------ */
-/* Per-device shift state (kept in localStorage)                       */
+/* Per-device state (kept in localStorage)                             */
 /* ------------------------------------------------------------------ */
 // The Shift Lead choice is tied to a specific day + shift, so the shared
 // device asks again when the shift changes or the next day starts.
-interface StoredLead { date: string; shift: Shift; leadId: string }
+interface StoredLead { date: string; shift: string; leadId: string }
 // A manual shift override lasts until the time-based shift changes.
-interface StoredShift { date: string; autoShift: Shift; shift: Shift }
+interface StoredShift { date: string; autoShift: string; shift: string }
+export type ThemeChoice = 'light' | 'dark' | 'auto';
 
 const LEAD_KEY = 'hoh.shiftLead';
 const SHIFT_KEY = 'hoh.shiftOverride';
+const THEME_KEY = 'hoh.theme';
 
 function readJson<T>(key: string): T | null {
   try {
@@ -33,7 +35,8 @@ function readJson<T>(key: string): T | null {
 }
 function writeJson(key: string, value: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
   } catch {
     /* storage unavailable */
   }
@@ -51,10 +54,16 @@ interface AppState {
   isManager: boolean;
   isDirector: boolean;
   isKitchen: boolean;
+  /** True after someone opens a password-reset link; the app asks for a new password. */
+  recovering: boolean;
+  finishRecovery: () => void;
+
+  settings: AppSettings;
+  shiftNames: string[];
 
   today: string;
-  shift: Shift;
-  setShift: (s: Shift) => void;
+  shift: string;
+  setShift: (s: string) => void;
 
   leads: HohLead[];
   leadId: string | null;
@@ -63,6 +72,9 @@ interface AppState {
   actorName: string | null;
   /** lead_id to send with inserts (only meaningful on the shared kitchen device). */
   actorLeadId: string | null;
+
+  theme: ThemeChoice;
+  setTheme: (t: ThemeChoice) => void;
 
   toast: (text: string, kind?: ToastKind) => void;
   /** Returns false (and shows a message) if nobody can be credited for a new entry yet. */
@@ -82,8 +94,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [leads, setLeads] = useState<HohLead[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [tick, setTick] = useState(0); // re-evaluate time-based shift every minute
+  const [recovering, setRecovering] = useState(false);
+
+  /* ---- theme (per device) ---- */
+  const [theme, setThemeState] = useState<ThemeChoice>(() => readJson<ThemeChoice>(THEME_KEY) ?? 'light');
+  useEffect(() => {
+    document.documentElement.setAttribute('data-app-theme', theme);
+  }, [theme]);
+  const setTheme = useCallback((t: ThemeChoice) => {
+    setThemeState(t);
+    writeJson(THEME_KEY, t);
+  }, []);
 
   /* ---- auth ---- */
   useEffect(() => {
@@ -91,7 +115,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       if (!data.session) setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
       setSession(s);
       if (!s) {
         setProfile(null);
@@ -123,17 +148,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const active = !!profile && profile.role !== 'pending';
 
-  /* ---- HOH leads list ---- */
+  /* ---- HOH leads list + store settings ---- */
   const loadLeads = useCallback(async () => {
     if (!active) return;
     const { data } = await supabase.from('hoh_leads').select('*').eq('active', true).order('sort_order').order('name');
     setLeads((data as HohLead[]) ?? []);
   }, [active]);
 
+  const loadSettings = useCallback(async () => {
+    if (!active) return;
+    const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
+    if (data) setSettings({ ...DEFAULT_SETTINGS, ...(data as Partial<AppSettings>) });
+  }, [active]);
+
   useEffect(() => {
     loadLeads();
-  }, [loadLeads]);
+    loadSettings();
+  }, [loadLeads, loadSettings]);
   useRealtime(active ? ['hoh_leads'] : [], loadLeads);
+  useRealtime(active ? ['app_settings'] : [], loadSettings);
 
   /* ---- clock ---- */
   useEffect(() => {
@@ -144,21 +177,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   /* ---- shift ---- */
   const [shiftOverride, setShiftOverride] = useState<StoredShift | null>(() => readJson<StoredShift>(SHIFT_KEY));
   const [storedLead, setStoredLead] = useState<StoredLead | null>(() => readJson<StoredLead>(LEAD_KEY));
+  const shiftNames = useMemo(() => settings.shifts.map((s) => s.name), [settings.shifts]);
 
   const { today, shift } = useMemo(() => {
     void tick;
     const now = new Date();
     const date = localDate(now);
-    const auto = shiftForTime(now);
+    const auto = shiftForTime(settings.shifts, now);
     const o = shiftOverride;
-    const s = o && o.date === date && o.autoShift === auto ? o.shift : auto;
+    const s = o && o.date === date && o.autoShift === auto && shiftNames.includes(o.shift) ? o.shift : auto;
     return { today: date, shift: s };
-  }, [tick, shiftOverride]);
+  }, [tick, shiftOverride, settings.shifts, shiftNames]);
 
   const setShift = useCallback(
-    (s: Shift) => {
+    (s: string) => {
       const now = new Date();
-      const next: StoredShift = { date: localDate(now), autoShift: shiftForTime(now), shift: s };
+      const next: StoredShift = { date: localDate(now), autoShift: shiftForTime(settings.shifts, now), shift: s };
       setShiftOverride(next);
       writeJson(SHIFT_KEY, next);
       // Keep the same Shift Lead when someone corrects the shift by hand.
@@ -168,7 +202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         writeJson(LEAD_KEY, lead);
       }
     },
-    [storedLead],
+    [storedLead, settings.shifts],
   );
 
   const leadId =
@@ -180,7 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (id: string | null) => {
       if (!id) {
         setStoredLead(null);
-        try { localStorage.removeItem(LEAD_KEY); } catch { /* ignore */ }
+        writeJson(LEAD_KEY, null);
         return;
       }
       const next: StoredLead = { date: today, shift, leadId: id };
@@ -216,6 +250,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     isManager: profile?.role === 'lead' || profile?.role === 'director',
     isDirector: profile?.role === 'director',
     isKitchen,
+    recovering,
+    finishRecovery: () => setRecovering(false),
+    settings,
+    shiftNames,
     today,
     shift,
     setShift,
@@ -224,6 +262,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLeadId,
     actorName,
     actorLeadId: isKitchen ? leadId : null,
+    theme,
+    setTheme,
     toast,
     ensureActor,
   };

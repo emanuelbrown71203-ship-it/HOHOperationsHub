@@ -4,17 +4,17 @@ import { useApp } from '../lib/app';
 import { supabase } from '../lib/supabase';
 import { useRealtime } from '../lib/useRealtime';
 import { useChecklists } from '../lib/useChecklists';
-import { formatDay, timeAgo } from '../lib/dates';
+import { formatClock, formatDay, timeAgo } from '../lib/dates';
+import { shiftTone } from '../lib/tone';
 import type { Equipment, EquipmentLog, WasteEntry } from '../lib/types';
 import Progress from '../components/Progress';
 import Ring from '../components/Ring';
 import DayDot from '../components/DayDot';
-import Icon from '../components/Icon';
-
-const FILTER_DUE_HOURS = 12;
+import Icon, { categoryIcon } from '../components/Icon';
+import { dueText, trackStatus } from './Equipment';
 
 export default function Home() {
-  const { today, shift, actorName, isKitchen } = useApp();
+  const { today, shift, shiftNames, settings, actorName, isKitchen } = useApp();
   const { progress } = useChecklists(today);
   const [waste, setWaste] = useState<WasteEntry[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
@@ -25,7 +25,7 @@ export default function Home() {
     const [w, eq, lg, op] = await Promise.all([
       supabase.from('waste_entries').select('*').eq('log_date', today),
       supabase.from('equipment').select('*').eq('active', true).order('sort_order'),
-      supabase.from('equipment_logs').select('*').eq('log_type', 'filter_change').order('logged_at', { ascending: false }).limit(100),
+      supabase.from('equipment_logs').select('*').order('logged_at', { ascending: false }).limit(300),
       supabase.from('equipment_logs').select('*').eq('status', 'open').order('logged_at', { ascending: false }),
     ]);
     setWaste((w.data as WasteEntry[]) ?? []);
@@ -37,7 +37,10 @@ export default function Home() {
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(['waste_entries', 'equipment_logs'], load);
+  useRealtime(['waste_entries', 'equipment_logs', 'equipment'], load);
+
+  const tone = shiftTone(shiftNames, shift);
+  const shiftDef = settings.shifts.find((s) => s.name === shift);
 
   const sortedProgress = useMemo(
     () => [...progress].sort((a, b) => Number(b.template.shift === shift) - Number(a.template.shift === shift)),
@@ -62,18 +65,19 @@ export default function Home() {
   }, [waste]);
   const maxWaste = topWaste[0]?.qty ?? 1;
 
-  const fryers = equipment.filter((e) => e.category === 'Fryer');
-  const fryerStatus = fryers.map((f) => {
-    const last = logs.find((l) => l.equipment_id === f.id);
-    const due = !last || Date.now() - new Date(last.logged_at).getTime() > FILTER_DUE_HOURS * 3600 * 1000;
-    return { fryer: f, last, due };
-  });
-  const fryersDue = fryerStatus.filter((f) => f.due).length;
+  const tracked = equipment
+    .map((e) => ({ eq: e, t: trackStatus(e, logs) }))
+    .filter((x): x is { eq: Equipment; t: NonNullable<ReturnType<typeof trackStatus>> } => !!x.t)
+    .sort((a, b) => a.t.left - b.t.left);
+  const dueCount = tracked.filter((x) => x.t.due).length;
   const nameOf = (id: string) => equipment.find((e) => e.id === id)?.name ?? 'Equipment';
 
   return (
-    <div className="page">
-      <section className="hero">
+    <div className="page sec-home">
+      <section className={`hero tone-${tone}`}>
+        <div className="hero-sky" aria-hidden="true">
+          <span className="hero-sun" />
+        </div>
         <div className="hero-main">
           <div className="hero-eyebrow">
             <span>{formatDay(today)}</span>
@@ -87,53 +91,59 @@ export default function Home() {
             ) : (
               <span>No Shift Lead selected</span>
             )}
+            {shiftDef && <span className="hero-since">· started {formatClock(shiftDef.start)}</span>}
           </div>
         </div>
-        <div className="hero-ring">
-          <Ring done={focusDone} total={focusTotal} size={112} stroke={10} label={`${shift} checklists: ${focusDone} of ${focusTotal}`} />
-          <span>{current.length ? `${shift} tasks` : 'Today’s tasks'}<br /><b>{focusDone} of {focusTotal}</b></span>
-        </div>
+        <Link to="/checklists" className="ticket">
+          <span className="ticket-head">{current.length ? `${shift} checklists` : 'Today’s checklists'}</span>
+          <Ring done={focusDone} total={focusTotal} size={96} stroke={9} label={`${focusDone} of ${focusTotal} tasks`} />
+          <span className="ticket-count"><b>{focusDone}</b> of {focusTotal} tasks</span>
+        </Link>
       </section>
 
       <div className="kpis">
-        <Link to="/checklists" className="kpi">
+        <Link to="/checklists" className="kpi sec-checklists">
+          <span className="kpi-icon"><Icon name="check" size={20} /></span>
           <span className="kpi-label">Checklists today</span>
           <span className="kpi-value">{allTotal ? Math.round((allDone / allTotal) * 100) : 0}<small>%</small></span>
           <span className="kpi-note">{allDone} of {allTotal} tasks</span>
         </Link>
-        <Link to="/waste" className="kpi">
+        <Link to="/waste" className="kpi sec-waste">
+          <span className="kpi-icon"><Icon name="trash" size={20} /></span>
           <span className="kpi-label">Waste entries</span>
           <span className="kpi-value">{waste.length}</span>
           <span className="kpi-note">{topWaste[0] ? `Most: ${topWaste[0].item}` : 'Nothing logged yet'}</span>
         </Link>
-        <Link to="/equipment" className={`kpi ${issues.length ? 'kpi-danger' : 'kpi-ok'}`}>
+        <Link to="/equipment" className={`kpi sec-equipment ${issues.length ? 'kpi-danger' : ''}`}>
+          <span className="kpi-icon"><Icon name="alert" size={20} /></span>
           <span className="kpi-label">Open issues</span>
           <span className="kpi-value">{issues.length}</span>
           <span className="kpi-note">{issues.length ? 'Needs attention' : 'All equipment OK'}</span>
         </Link>
-        <Link to="/equipment" className={`kpi ${fryersDue ? 'kpi-warn' : 'kpi-ok'}`}>
-          <span className="kpi-label">Fryers to filter</span>
-          <span className="kpi-value">{fryersDue}<small>/{fryers.length}</small></span>
-          <span className="kpi-note">Due after {FILTER_DUE_HOURS} hrs</span>
+        <Link to="/equipment" className={`kpi sec-equipment ${dueCount ? 'kpi-warn' : ''}`}>
+          <span className="kpi-icon"><Icon name="clock" size={20} /></span>
+          <span className="kpi-label">Tasks due</span>
+          <span className="kpi-value">{dueCount}<small>/{tracked.length}</small></span>
+          <span className="kpi-note">{tracked.length ? 'Recurring equipment tasks' : 'None scheduled'}</span>
         </Link>
       </div>
 
       <div className="quick">
-        <Link to="/checklists" className="quick-btn"><span className="quick-icon"><Icon name="check" size={22} /></span>Check off tasks</Link>
-        <Link to="/waste" className="quick-btn"><span className="quick-icon"><Icon name="trash" size={22} /></span>Log waste</Link>
+        <Link to="/checklists" className="quick-btn sec-checklists"><span className="quick-icon"><Icon name="check" size={22} /></span>Check off tasks</Link>
+        <Link to="/waste" className="quick-btn sec-waste"><span className="quick-icon"><Icon name="trash" size={22} /></span>Log waste</Link>
         <Link to={equipment[0] ? `/equipment?log=${equipment[0].id}&issue=1` : '/equipment'} className="quick-btn quick-danger">
           <span className="quick-icon"><Icon name="alert" size={22} /></span>Report an issue
         </Link>
       </div>
 
       <div className="dash-grid">
-        <section className="card">
+        <section className="card sec-checklists">
           <div className="card-head">
-            <h2>Today's checklists</h2>
+            <h2><span className="dot" />Today's checklists</h2>
             <Link to="/checklists" className="link-more">View all <Icon name="chevron" size={16} /></Link>
           </div>
           {sortedProgress.length === 0 ? (
-            <p className="muted">No checklists set up.</p>
+            <p className="muted">No checklists yet. Add them in Setup → Checklists.</p>
           ) : (
             <ul className="mini-list">
               {sortedProgress.map((p) => (
@@ -142,6 +152,7 @@ export default function Home() {
                     <span className="mini-name">
                       {p.template.name}
                       {p.template.shift === shift && <span className="pill pill-accent">Now</span>}
+                      {p.template.frequency === 'weekly' && <span className="pill">Weekly</span>}
                     </span>
                     <span className={`count ${p.total > 0 && p.done === p.total ? 'count-done' : ''}`}>{p.done}/{p.total}</span>
                   </Link>
@@ -152,9 +163,9 @@ export default function Home() {
           )}
         </section>
 
-        <section className="card">
+        <section className="card sec-equipment">
           <div className="card-head">
-            <h2>Open equipment issues</h2>
+            <h2><span className="dot dot-danger" />Open equipment issues</h2>
             <Link to="/equipment" className="link-more">Equipment <Icon name="chevron" size={16} /></Link>
           </div>
           {issues.length === 0 ? (
@@ -172,9 +183,9 @@ export default function Home() {
           )}
         </section>
 
-        <section className="card">
+        <section className="card sec-waste">
           <div className="card-head">
-            <h2>Waste today</h2>
+            <h2><span className="dot" />Waste today</h2>
             <Link to="/waste" className="link-more">Waste log <Icon name="chevron" size={16} /></Link>
           </div>
           {topWaste.length === 0 ? (
@@ -194,23 +205,25 @@ export default function Home() {
           )}
         </section>
 
-        {fryers.length > 0 && (
-          <section className="card">
-            <div className="card-head">
-              <h2>Fryer filters</h2>
-              <span className="muted small">Due every {FILTER_DUE_HOURS} hrs</span>
-            </div>
+        <section className="card sec-equipment">
+          <div className="card-head">
+            <h2><span className="dot" />Recurring tasks</h2>
+            <Link to="/equipment" className="link-more">Equipment <Icon name="chevron" size={16} /></Link>
+          </div>
+          {tracked.length === 0 ? (
+            <p className="muted">No recurring tasks. In Setup → Equipment, set one for any item, e.g. "Filter change every 12 hrs".</p>
+          ) : (
             <div className="fryer-grid">
-              {fryerStatus.map(({ fryer, last, due }) => (
-                <Link key={fryer.id} to={`/equipment?log=${fryer.id}`} className={`fryer ${due ? 'fryer-due' : 'fryer-ok'}`}>
-                  <span className="fryer-name"><Icon name="flame" size={16} /> {fryer.name}</span>
-                  <span className="fryer-time">{last ? timeAgo(last.logged_at) : 'Never'}</span>
-                  <span className="fryer-state">{due ? 'Filter due' : 'Filtered'}</span>
+              {tracked.map(({ eq, t }) => (
+                <Link key={eq.id} to={`/equipment?log=${eq.id}`} className={`fryer ${t.due ? 'fryer-due' : t.soon ? 'fryer-soon' : 'fryer-ok'}`}>
+                  <span className="fryer-name"><Icon name={categoryIcon(eq.category)} size={16} /> {eq.name}</span>
+                  <span className="fryer-time">{t.last ? `${t.action} ${timeAgo(t.last.logged_at)}` : `No ${t.action.toLowerCase()} yet`}</span>
+                  <span className="fryer-state">{t.due ? (t.last ? 'Overdue' : 'Due now') : t.soon ? 'Due soon' : dueText(t).replace(`${t.action} `, '')}</span>
                 </Link>
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </div>
     </div>
   );

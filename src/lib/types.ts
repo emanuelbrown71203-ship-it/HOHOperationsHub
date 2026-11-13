@@ -1,7 +1,7 @@
 export type Role = 'pending' | 'team_member' | 'lead' | 'director' | 'kitchen';
 
 export const ROLE_LABELS: Record<Role, string> = {
-  pending: 'Pending approval',
+  pending: 'No access (pending)',
   team_member: 'Team Member',
   lead: 'HOH Lead',
   director: 'Director',
@@ -26,6 +26,7 @@ export interface ChecklistTemplate {
   id: string;
   name: string;
   shift: string;
+  frequency: 'daily' | 'weekly';
   sort_order: number;
   active: boolean;
 }
@@ -75,11 +76,14 @@ export interface Equipment {
   id: string;
   name: string;
   category: string;
+  track_action: string | null;
+  track_hours: number | null;
   sort_order: number;
   active: boolean;
 }
 
-export type EquipmentLogType = 'filter_change' | 'oil_change' | 'cleaning' | 'maintenance' | 'issue';
+/** 'issue' is special (open until resolved); every other value is an action name from Settings. */
+export type EquipmentLogType = string;
 
 export interface EquipmentLog {
   id: string;
@@ -97,25 +101,40 @@ export interface EquipmentLog {
   resolution_notes: string | null;
 }
 
-export const SHIFTS = ['Opening', 'Mid', 'Closing'] as const;
-export type Shift = (typeof SHIFTS)[number];
+export interface ShiftDef {
+  name: string;
+  /** Start time, 24-hour "HH:MM". */
+  start: string;
+}
 
-export const WASTE_UNITS = ['each', 'lbs', 'orders', 'pans', 'bags', 'trays', 'cases'];
+export interface AppSettings {
+  store_name: string;
+  shifts: ShiftDef[];
+  waste_reasons: string[];
+  waste_units: string[];
+  equipment_actions: string[];
+}
 
-export const WASTE_REASONS = [
-  'Overcooked / burnt',
-  'Hold time expired',
-  'Dropped / contaminated',
-  'Overproduction',
-  'Quality issue',
-  'Customer return',
-  'Other',
-];
+export const DEFAULT_SETTINGS: AppSettings = {
+  store_name: 'Our Store',
+  shifts: [
+    { name: 'Opening', start: '05:00' },
+    { name: 'Mid', start: '10:30' },
+    { name: 'Closing', start: '16:00' },
+  ],
+  waste_reasons: ['Overcooked / burnt', 'Hold time expired', 'Dropped / contaminated', 'Overproduction', 'Quality issue', 'Customer return', 'Other'],
+  waste_units: ['each', 'lbs', 'orders', 'pans', 'bags', 'trays', 'cases'],
+  equipment_actions: ['Filter change', 'Oil change', 'Cleaning', 'Maintenance'],
+};
 
-export const EQUIPMENT_LOG_LABELS: Record<EquipmentLogType, string> = {
+const LEGACY_LOG_LABELS: Record<string, string> = {
   filter_change: 'Filter change',
   oil_change: 'Oil change',
   cleaning: 'Cleaning',
   maintenance: 'Maintenance',
-  issue: 'Issue reported',
 };
+
+export function logTypeLabel(type: string): string {
+  if (type === 'issue') return 'Issue reported';
+  return LEGACY_LOG_LABELS[type] ?? type;
+}

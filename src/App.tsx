@@ -10,14 +10,16 @@ import Waste from './pages/Waste';
 import EquipmentPage from './pages/Equipment';
 import Setup from './pages/Setup';
 import Account from './pages/Account';
+import ResetPassword from './pages/ResetPassword';
 
 export default function App() {
-  const { session, profile, loading, isManager } = useApp();
+  const { session, profile, loading, isManager, recovering } = useApp();
 
   if (loading) {
     return <div className="center-screen"><div className="spinner" aria-label="Loading" /></div>;
   }
   if (!session) return <Login />;
+  if (recovering) return <ResetPassword />;
   if (!profile || profile.role === 'pending') return <Pending />;
 
   return (

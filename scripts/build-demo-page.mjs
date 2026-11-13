@@ -7,15 +7,15 @@ const css = readFileSync(`${dir}/${files.find((f) => f.endsWith('.css'))}`, 'utf
 const js = readFileSync(`${dir}/${files.find((f) => f.endsWith('.js'))}`, 'utf8').replaceAll('</script', '<\\/script');
 
 const page = `<title>HOH Operations Hub</title>
-<meta name="theme-color" content="#16191e">
+<meta name="theme-color" content="#e63946">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@500&display=swap">
 <style>
 ${css}
 /* Hosted preview: keep the sticky top bar clear of phone system bars. */
 .topbar { top: env(safe-area-inset-top, 0px); }
-body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--chrome); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
 </style>
 <div id="root"></div>
 <script type="module">

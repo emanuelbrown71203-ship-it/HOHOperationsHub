@@ -4,7 +4,7 @@ import { supabase, errorMessage, isDemo } from '../lib/supabase';
 import { DEMO_ACCOUNTS } from '../lib/demo';
 
 export default function Login() {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +18,12 @@ export default function Login() {
     setError(null);
     setNotice(null);
     try {
-      if (mode === 'signin') {
+      if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+        if (error) throw error;
+        setNotice('If that email has an account, a reset link is on its way. Open it on this device to choose a new password.');
+        setMode('signin');
+      } else if (mode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         if (error) throw error;
       } else {
@@ -94,7 +99,7 @@ export default function Login() {
           <span>Email</span>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </label>
-        <label className="field">
+        {mode !== 'forgot' && <label className="field">
           <span>Password</span>
           <input
             type="password"
@@ -104,11 +109,22 @@ export default function Login() {
             minLength={6}
             autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
           />
-        </label>
+        </label>}
 
         <button className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+          {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : mode === 'forgot' ? 'Send reset link' : 'Create account'}
         </button>
+
+        {mode === 'signin' && (
+          <button type="button" className="link-btn" onClick={() => { setMode('forgot'); setError(null); setNotice(null); }}>
+            Forgot your password?
+          </button>
+        )}
+        {mode === 'forgot' && (
+          <button type="button" className="link-btn" onClick={() => setMode('signin')}>
+            Back to sign in
+          </button>
+        )}
 
         {mode === 'signup' && (
           <p className="muted small">New accounts need a director's approval before they can see or log anything.</p>

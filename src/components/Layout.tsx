@@ -2,22 +2,22 @@ import iconUrl from '../assets/icon.svg';
 import { useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useApp } from '../lib/app';
-import { SHIFTS, type Shift } from '../lib/types';
+import { shiftTone } from '../lib/tone';
 import LeadPicker from './LeadPicker';
 import Icon, { type IconName } from './Icon';
 import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 
-const NAV: { to: string; label: string; icon: IconName; managerOnly?: boolean }[] = [
-  { to: '/', label: 'Home', icon: 'home' },
-  { to: '/checklists', label: 'Checklists', icon: 'check' },
-  { to: '/waste', label: 'Waste', icon: 'trash' },
-  { to: '/equipment', label: 'Equipment', icon: 'wrench' },
-  { to: '/setup', label: 'Setup', icon: 'gear', managerOnly: true },
+const NAV: { to: string; label: string; icon: IconName; section: string; managerOnly?: boolean }[] = [
+  { to: '/', label: 'Home', icon: 'home', section: 'home' },
+  { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
+  { to: '/waste', label: 'Waste', icon: 'trash', section: 'waste' },
+  { to: '/equipment', label: 'Equipment', icon: 'wrench', section: 'equipment' },
+  { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', managerOnly: true },
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { isKitchen, actorName, shift, setShift, isManager, profile } = useApp();
+  const { isKitchen, actorName, shift, setShift, shiftNames, isManager, profile, settings } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
   const needsLead = isKitchen && !actorName;
 
@@ -30,15 +30,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           <img src={iconUrl} alt="" width={32} height={32} />
           <div>
             <div className="brand-name">HOH Operations Hub</div>
-            <div className="brand-sub">Heart of House</div>
+            <div className="brand-sub">{settings.store_name}</div>
           </div>
         </div>
 
         <div className="topbar-controls">
-          <label className="shift-select">
+          <label className={`shift-select tone-${shiftTone(shiftNames, shift)}`}>
             <span className="sr-only">Shift</span>
-            <select value={shift} onChange={(e) => setShift(e.target.value as Shift)} aria-label="Current shift">
-              {SHIFTS.map((s) => (
+            <span className="shift-dot" aria-hidden="true" />
+            <select value={shift} onChange={(e) => setShift(e.target.value)} aria-label="Current shift">
+              {(shiftNames.includes(shift) ? shiftNames : [shift, ...shiftNames]).map((s) => (
                 <option key={s} value={s}>{s} shift</option>
               ))}
             </select>
@@ -66,7 +67,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <nav className="sidenav" aria-label="Main">
         {nav.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'} className="navlink">
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={`navlink sec-${n.section}`}>
             <Icon name={n.icon} />
             <span>{n.label}</span>
           </NavLink>
@@ -95,7 +96,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <nav className="tabbar" aria-label="Main">
         {nav.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'} className="tab">
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={`tab sec-${n.section}`}>
             <Icon name={n.icon} />
             <span>{n.label}</span>
           </NavLink>
