@@ -43,9 +43,14 @@ export default function Login() {
   return (
     <div className="auth-screen">
       <form className="auth-card" onSubmit={submit}>
-        <img src={iconUrl} alt="" width={56} height={56} />
-        <h1>HOH Operations Hub</h1>
-        <p className="muted">Heart of House checklists, waste and equipment logs</p>
+        <div className="auth-brand">
+          <img src={iconUrl} alt="" width={52} height={52} />
+          <div>
+            <span className="auth-eyebrow">Heart of House</span>
+            <h1>HOH Operations Hub</h1>
+          </div>
+          <p>Shift checklists, waste and equipment logs for the whole kitchen team.</p>
+        </div>
 
         {isDemo && (
           <div className="demo-accounts">

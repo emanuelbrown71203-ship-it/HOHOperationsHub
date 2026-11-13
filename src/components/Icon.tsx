@@ -15,10 +15,26 @@ const PATHS = {
   download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
   done: 'M20 6L9 17l-5-5',
   clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
+  flame: 'M12 22c4 0 7-2.7 7-6.8 0-3.3-2.1-5.6-3.6-7.2-.3 1.6-1.2 2.8-2.4 3.3.4-3.6-1.2-6.6-4-8.3.3 3-1.4 5.1-3 7C4.6 11.6 5 13.4 5 15.2 5 19.3 8 22 12 22z',
+  snow: 'M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1L19.1 4.9M9 3l3 3 3-3M9 21l3-3 3 3M3 9l3 3-3 3M21 9l-3 3 3 3',
+  box: 'M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
+  droplet: 'M12 2.7l5.7 5.7a8 8 0 1 1-11.4 0z',
+  grid: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
+  logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z',
 } as const;
 
 export type IconName = keyof typeof PATHS;
+
+export function categoryIcon(category: string): IconName {
+  const c = category.toLowerCase();
+  if (c.includes('fry') || c.includes('cook') || c.includes('grill')) return 'flame';
+  if (c.includes('refrig') || c.includes('freez') || c.includes('cool')) return 'snow';
+  if (c.includes('hold')) return 'box';
+  if (c.includes('clean') || c.includes('dish')) return 'droplet';
+  if (c.includes('prep')) return 'grid';
+  return 'wrench';
+}
 
 export default function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return (

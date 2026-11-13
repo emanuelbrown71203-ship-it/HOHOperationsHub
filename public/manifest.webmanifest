@@ -3,7 +3,7 @@
   "short_name": "HOH Hub",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#faf7f2",
-  "theme_color": "#b91c1c",
+  "background_color": "#eceef1",
+  "theme_color": "#16191e",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }

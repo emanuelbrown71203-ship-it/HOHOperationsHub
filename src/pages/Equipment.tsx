@@ -8,7 +8,7 @@ import { downloadCsv } from '../lib/csv';
 import { EQUIPMENT_LOG_LABELS, type Equipment, type EquipmentLog, type EquipmentLogType } from '../lib/types';
 import RangePicker, { rangeDates, type RangeKey } from '../components/RangePicker';
 import Modal from '../components/Modal';
-import Icon from '../components/Icon';
+import Icon, { categoryIcon } from '../components/Icon';
 
 const LOG_TYPES: EquipmentLogType[] = ['filter_change', 'oil_change', 'cleaning', 'maintenance', 'issue'];
 
@@ -141,17 +141,22 @@ export default function EquipmentPage() {
       ) : (
         categories.map(([cat, list]) => (
           <section key={cat} className="stack">
-            <h2 className="section-title">{cat}</h2>
+            <h2 className="section-title"><Icon name={categoryIcon(cat)} size={16} /> {cat}</h2>
             <div className="equip-grid">
               {list.map((e) => {
                 const issues = openIssues.filter((i) => i.equipment_id === e.id).length;
                 const last = cat === 'Fryer' ? lastOf(e.id, 'filter_change') : lastOf(e.id);
+                const due = cat === 'Fryer' && (!last || Date.now() - new Date(last.logged_at).getTime() > 12 * 3600 * 1000);
+                const state = issues ? 'issue' : due ? 'due' : 'ok';
                 return (
-                  <button key={e.id} className={`equip-card ${issues ? 'has-issue' : ''}`} onClick={() => openLog(e.id)}>
-                    <div className="row-between">
-                      <strong>{e.name}</strong>
-                      {issues > 0 && <span className="pill pill-danger">{issues} issue{issues > 1 ? 's' : ''}</span>}
+                  <button key={e.id} className={`equip-card equip-${state}`} onClick={() => openLog(e.id)}>
+                    <div className="equip-top">
+                      <span className="equip-icon"><Icon name={categoryIcon(e.category)} size={20} /></span>
+                      <span className={`status status-${state}`}>
+                        {issues ? `${issues} issue${issues > 1 ? 's' : ''}` : due ? 'Filter due' : 'OK'}
+                      </span>
                     </div>
+                    <strong className="equip-name">{e.name}</strong>
                     <span className="muted small">
                       {last
                         ? `${cat === 'Fryer' ? 'Filtered' : EQUIPMENT_LOG_LABELS[last.log_type]} ${timeAgo(last.logged_at)}`

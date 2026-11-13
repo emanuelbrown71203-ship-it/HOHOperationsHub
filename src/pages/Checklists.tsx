@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { useChecklists } from '../lib/useChecklists';
-import Progress from '../components/Progress';
+import Ring from '../components/Ring';
 import DateNav from '../components/DateNav';
 import Icon from '../components/Icon';
 
@@ -27,23 +27,19 @@ export default function Checklists() {
           {progress.map((p) => {
             const current = p.template.shift === shift;
             return (
-              <Link key={p.template.id} to={`/checklists/${p.template.id}?date=${date}`} className={`card card-link ${current ? 'card-current' : ''}`}>
-                <div className="row-between">
-                  <div>
-                    <h2>{p.template.name}</h2>
-                    <div className="muted small">
-                      {p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}
-                      {current && date === today && <span className="pill pill-accent">Now</span>}
-                    </div>
+              <Link key={p.template.id} to={`/checklists/${p.template.id}?date=${date}`} className={`card card-link list-card ${current ? 'card-current' : ''}`}>
+                <Ring done={p.done} total={p.total} size={64} stroke={7} />
+                <div className="list-card-body">
+                  <div className="list-card-top">
+                    <span className="shift-tag">{p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}</span>
+                    {current && date === today && <span className="pill pill-accent">Now</span>}
                   </div>
-                  <div className="row-gap">
-                    <span className={`count ${p.done === p.total && p.total > 0 ? 'count-done' : ''}`}>
-                      {p.done}/{p.total}
-                    </span>
-                    <Icon name="chevron" />
-                  </div>
+                  <h2>{p.template.name}</h2>
+                  <span className="muted small">
+                    {p.total === 0 ? 'No tasks yet' : p.done === p.total ? 'All tasks done' : `${p.total - p.done} of ${p.total} tasks left`}
+                  </span>
                 </div>
-                <Progress done={p.done} total={p.total} />
+                <Icon name="chevron" />
               </Link>
             );
           })}

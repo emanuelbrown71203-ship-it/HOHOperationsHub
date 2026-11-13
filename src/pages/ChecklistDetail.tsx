@@ -5,7 +5,7 @@ import { useChecklists } from '../lib/useChecklists';
 import { supabase, errorMessage } from '../lib/supabase';
 import { formatTime } from '../lib/dates';
 import type { ChecklistCheck, ChecklistItem } from '../lib/types';
-import Progress from '../components/Progress';
+import Ring from '../components/Ring';
 import DateNav from '../components/DateNav';
 import Icon from '../components/Icon';
 
@@ -67,12 +67,13 @@ export default function ChecklistDetail() {
         <DateNav date={date} today={today} onChange={(d) => setParams({ date: d }, { replace: true })} />
       </div>
 
-      <div className="card">
-        <div className="row-between">
-          <strong>{complete ? 'All done!' : `${p.done} of ${p.total} complete`}</strong>
-          {date !== today && <span className="pill">Past day</span>}
+      <div className={`summary ${complete ? 'summary-done' : ''}`}>
+        <Ring done={p.done} total={p.total} size={72} stroke={8} />
+        <div>
+          <span className="shift-tag">{p.template.shift === 'Any' ? 'Any shift' : `${p.template.shift} shift`}</span>
+          <strong className="summary-title">{complete ? 'All done!' : `${p.done} of ${p.total} complete`}</strong>
+          <span className="muted small">{date !== today ? 'Viewing a past day' : complete ? 'Nice work, team.' : 'Tap a task when it’s done.'}</span>
         </div>
-        <Progress done={p.done} total={p.total} />
       </div>
 
       {p.items.length === 0 ? (

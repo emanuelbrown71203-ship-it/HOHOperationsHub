@@ -7,7 +7,11 @@ import { useChecklists } from '../lib/useChecklists';
 import { formatDay, timeAgo } from '../lib/dates';
 import type { Equipment, EquipmentLog, WasteEntry } from '../lib/types';
 import Progress from '../components/Progress';
+import Ring from '../components/Ring';
+import DayDot from '../components/DayDot';
 import Icon from '../components/Icon';
+
+const FILTER_DUE_HOURS = 12;
 
 export default function Home() {
   const { today, shift, actorName, isKitchen } = useApp();
@@ -39,45 +43,94 @@ export default function Home() {
     () => [...progress].sort((a, b) => Number(b.template.shift === shift) - Number(a.template.shift === shift)),
     [progress, shift],
   );
+  const current = sortedProgress.filter((p) => p.template.shift === shift);
+  const focus = current.length ? current : sortedProgress;
+  const focusDone = focus.reduce((n, p) => n + p.done, 0);
+  const focusTotal = focus.reduce((n, p) => n + p.total, 0);
+  const allDone = progress.reduce((n, p) => n + p.done, 0);
+  const allTotal = progress.reduce((n, p) => n + p.total, 0);
 
   const topWaste = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, { item: string; unit: string; qty: number }>();
     for (const e of waste) {
-      const k = `${e.item_name} (${e.unit})`;
-      m.set(k, (m.get(k) ?? 0) + Number(e.quantity));
+      const k = `${e.item_name}|${e.unit}`;
+      const cur = m.get(k) ?? { item: e.item_name, unit: e.unit, qty: 0 };
+      cur.qty += Number(e.quantity);
+      m.set(k, cur);
     }
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return [...m.values()].sort((a, b) => b.qty - a.qty).slice(0, 5);
   }, [waste]);
+  const maxWaste = topWaste[0]?.qty ?? 1;
 
   const fryers = equipment.filter((e) => e.category === 'Fryer');
+  const fryerStatus = fryers.map((f) => {
+    const last = logs.find((l) => l.equipment_id === f.id);
+    const due = !last || Date.now() - new Date(last.logged_at).getTime() > FILTER_DUE_HOURS * 3600 * 1000;
+    return { fryer: f, last, due };
+  });
+  const fryersDue = fryerStatus.filter((f) => f.due).length;
   const nameOf = (id: string) => equipment.find((e) => e.id === id)?.name ?? 'Equipment';
 
   return (
     <div className="page">
-      <div className="hero">
-        <div>
-          <div className="muted">{formatDay(today)}</div>
-          <h1>{shift} shift</h1>
-          <div className="muted">
+      <section className="hero">
+        <div className="hero-main">
+          <div className="hero-eyebrow">
+            <span>{formatDay(today)}</span>
+            <DayDot date={today} />
+          </div>
+          <h1 className="hero-title">{shift} shift</h1>
+          <div className="hero-lead">
+            <Icon name="user" size={18} />
             {actorName ? (
-              <>Logging as <strong>{actorName}</strong></>
-            ) : isKitchen ? (
-              'No Shift Lead selected'
-            ) : null}
+              <span>{isKitchen ? 'Shift Lead' : 'Logging as'} <strong>{actorName}</strong></span>
+            ) : (
+              <span>No Shift Lead selected</span>
+            )}
           </div>
         </div>
-        <div className="quick">
-          <Link to="/checklists" className="quick-btn"><Icon name="check" size={24} />Checklists</Link>
-          <Link to="/waste" className="quick-btn"><Icon name="trash" size={24} />Log waste</Link>
-          <Link to="/equipment" className="quick-btn"><Icon name="wrench" size={24} />Equipment</Link>
+        <div className="hero-ring">
+          <Ring done={focusDone} total={focusTotal} size={112} stroke={10} label={`${shift} checklists: ${focusDone} of ${focusTotal}`} />
+          <span>{current.length ? `${shift} tasks` : 'Today’s tasks'}<br /><b>{focusDone} of {focusTotal}</b></span>
         </div>
+      </section>
+
+      <div className="kpis">
+        <Link to="/checklists" className="kpi">
+          <span className="kpi-label">Checklists today</span>
+          <span className="kpi-value">{allTotal ? Math.round((allDone / allTotal) * 100) : 0}<small>%</small></span>
+          <span className="kpi-note">{allDone} of {allTotal} tasks</span>
+        </Link>
+        <Link to="/waste" className="kpi">
+          <span className="kpi-label">Waste entries</span>
+          <span className="kpi-value">{waste.length}</span>
+          <span className="kpi-note">{topWaste[0] ? `Most: ${topWaste[0].item}` : 'Nothing logged yet'}</span>
+        </Link>
+        <Link to="/equipment" className={`kpi ${issues.length ? 'kpi-danger' : 'kpi-ok'}`}>
+          <span className="kpi-label">Open issues</span>
+          <span className="kpi-value">{issues.length}</span>
+          <span className="kpi-note">{issues.length ? 'Needs attention' : 'All equipment OK'}</span>
+        </Link>
+        <Link to="/equipment" className={`kpi ${fryersDue ? 'kpi-warn' : 'kpi-ok'}`}>
+          <span className="kpi-label">Fryers to filter</span>
+          <span className="kpi-value">{fryersDue}<small>/{fryers.length}</small></span>
+          <span className="kpi-note">Due after {FILTER_DUE_HOURS} hrs</span>
+        </Link>
+      </div>
+
+      <div className="quick">
+        <Link to="/checklists" className="quick-btn"><span className="quick-icon"><Icon name="check" size={22} /></span>Check off tasks</Link>
+        <Link to="/waste" className="quick-btn"><span className="quick-icon"><Icon name="trash" size={22} /></span>Log waste</Link>
+        <Link to={equipment[0] ? `/equipment?log=${equipment[0].id}&issue=1` : '/equipment'} className="quick-btn quick-danger">
+          <span className="quick-icon"><Icon name="alert" size={22} /></span>Report an issue
+        </Link>
       </div>
 
       <div className="dash-grid">
         <section className="card">
-          <div className="row-between">
+          <div className="card-head">
             <h2>Today's checklists</h2>
-            <Link to="/checklists" className="small">View all</Link>
+            <Link to="/checklists" className="link-more">View all <Icon name="chevron" size={16} /></Link>
           </div>
           {sortedProgress.length === 0 ? (
             <p className="muted">No checklists set up.</p>
@@ -86,7 +139,7 @@ export default function Home() {
               {sortedProgress.map((p) => (
                 <li key={p.template.id}>
                   <Link to={`/checklists/${p.template.id}`} className="mini-row">
-                    <span>
+                    <span className="mini-name">
                       {p.template.name}
                       {p.template.shift === shift && <span className="pill pill-accent">Now</span>}
                     </span>
@@ -99,22 +152,20 @@ export default function Home() {
           )}
         </section>
 
-        <section className={`card ${issues.length ? 'card-alert' : ''}`}>
-          <div className="row-between">
+        <section className="card">
+          <div className="card-head">
             <h2>Open equipment issues</h2>
-            <Link to="/equipment" className="small">Equipment</Link>
+            <Link to="/equipment" className="link-more">Equipment <Icon name="chevron" size={16} /></Link>
           </div>
           {issues.length === 0 ? (
-            <p className="muted">No open issues. 👍</p>
+            <div className="all-clear"><Icon name="done" size={18} /> No open issues</div>
           ) : (
-            <ul className="entries compact">
+            <ul className="issue-list">
               {issues.map((i) => (
-                <li key={i.id} className="entry">
-                  <div className="entry-main">
-                    <strong>{nameOf(i.equipment_id)}</strong>
-                    <span>{i.notes}</span>
-                    <span className="muted small">{timeAgo(i.logged_at)} · {i.performed_by_name}</span>
-                  </div>
+                <li key={i.id} className="issue">
+                  <strong>{nameOf(i.equipment_id)}</strong>
+                  <span>{i.notes}</span>
+                  <span className="meta">{timeAgo(i.logged_at)} · {i.performed_by_name}</span>
                 </li>
               ))}
             </ul>
@@ -122,41 +173,42 @@ export default function Home() {
         </section>
 
         <section className="card">
-          <div className="row-between">
+          <div className="card-head">
             <h2>Waste today</h2>
-            <Link to="/waste" className="small">Waste log</Link>
+            <Link to="/waste" className="link-more">Waste log <Icon name="chevron" size={16} /></Link>
           </div>
-          {waste.length === 0 ? (
+          {topWaste.length === 0 ? (
             <p className="muted">Nothing logged today.</p>
           ) : (
-            <>
-              <div className="stat">{waste.length} <span>entr{waste.length === 1 ? 'y' : 'ies'}</span></div>
-              <ul className="mini-list">
-                {topWaste.map(([k, q]) => (
-                  <li key={k} className="mini-row"><span>{k}</span><span className="num">{+q.toFixed(2)}</span></li>
-                ))}
-              </ul>
-            </>
+            <ul className="bars">
+              {topWaste.map((t) => (
+                <li key={`${t.item}|${t.unit}`}>
+                  <div className="bars-row">
+                    <span>{t.item}</span>
+                    <span className="num">{+t.qty.toFixed(2)} <small>{t.unit}</small></span>
+                  </div>
+                  <div className="bar"><div style={{ width: `${(t.qty / maxWaste) * 100}%` }} /></div>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 
         {fryers.length > 0 && (
           <section className="card">
-            <h2>Fryer filters</h2>
-            <ul className="mini-list">
-              {fryers.map((f) => {
-                const last = logs.find((l) => l.equipment_id === f.id);
-                const stale = !last || Date.now() - new Date(last.logged_at).getTime() > 12 * 3600 * 1000;
-                return (
-                  <li key={f.id}>
-                    <Link to={`/equipment?log=${f.id}`} className="mini-row">
-                      <span>{f.name}</span>
-                      <span className={`small ${stale ? 'text-warn' : 'muted'}`}>{last ? timeAgo(last.logged_at) : 'Never'}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="card-head">
+              <h2>Fryer filters</h2>
+              <span className="muted small">Due every {FILTER_DUE_HOURS} hrs</span>
+            </div>
+            <div className="fryer-grid">
+              {fryerStatus.map(({ fryer, last, due }) => (
+                <Link key={fryer.id} to={`/equipment?log=${fryer.id}`} className={`fryer ${due ? 'fryer-due' : 'fryer-ok'}`}>
+                  <span className="fryer-name"><Icon name="flame" size={16} /> {fryer.name}</span>
+                  <span className="fryer-time">{last ? timeAgo(last.logged_at) : 'Never'}</span>
+                  <span className="fryer-state">{due ? 'Filter due' : 'Filtered'}</span>
+                </Link>
+              ))}
+            </div>
           </section>
         )}
       </div>

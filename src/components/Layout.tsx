@@ -80,7 +80,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <main className="content">
         {isDemo && (
           <div className="banner banner-demo">
-            <span><strong>Demo with sample data.</strong> Names and entries are examples. Changes stay in this browser only.</span>
+            <span><strong>Demo with sample data.</strong> Changes stay in this browser only.</span>
             <button className="btn btn-ghost btn-sm" onClick={resetDemo}>Reset demo</button>
           </div>
         )}
