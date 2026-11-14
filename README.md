@@ -1,6 +1,6 @@
 # HOH Operations Hub
 
-A web app for Heart of House (HOH) operations: **shift checklists**, a **waste log**, and an **equipment log**. Data is shared live across every device (kitchen tablet, phones, office computer).
+A web app for Heart of House (HOH) operations: **shift handoffs with photos**, **ratings of the previous shift** recorded as **HOH Lead scores**, **kitchen notes**, **checklists**, and a **waste log**. Data is shared live across every device (kitchen tablet, phones, office computer).
 
 Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 
