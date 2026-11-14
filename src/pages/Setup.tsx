@@ -5,6 +5,8 @@ import { supabase, errorMessage } from '../lib/supabase';
 import { formatClock } from '../lib/dates';
 import {
   ROLE_LABELS,
+  SCORES_VISIBILITY_LABELS,
+  type ScoresVisibility,
   type AppSettings,
   type ChecklistItem,
   type ChecklistTemplate,
@@ -205,6 +207,8 @@ function StoreEditor() {
 
       <ShiftsEditor />
 
+      <ScoresVisibilityEditor />
+
       <section className="card">
         <SectionIntro title="Waste reasons">The reason buttons on the Waste Log.</SectionIntro>
         <ListEditor items={settings.waste_reasons} noun="reason" onChange={(waste_reasons) => save({ waste_reasons })} />
@@ -215,6 +219,39 @@ function StoreEditor() {
         <ListEditor items={settings.waste_units} noun="unit" onChange={(waste_units) => save({ waste_units })} />
       </section>
     </div>
+  );
+}
+
+function ScoresVisibilityEditor() {
+  const { settings, isDirector } = useApp();
+  const save = useSaveSettings();
+  const options: [ScoresVisibility, string][] = [
+    ['directors', 'Only directors can see ratings and lead scores.'],
+    ['managers', 'Directors and HOH Leads (accounts with the HOH Lead role) can see them.'],
+    ['everyone', 'Everyone with an approved account can see them, including the shared kitchen device.'],
+  ];
+  return (
+    <section className="card">
+      <SectionIntro title="Who can see lead scores">
+        Anyone can rate the previous shift. This controls who can see the stars, comments and the Lead Scores page.
+        {!isDirector && ' Only directors can change it.'}
+      </SectionIntro>
+      <div className="radio-list" role="radiogroup" aria-label="Who can see lead scores">
+        {options.map(([key, hint]) => (
+          <button
+            key={key}
+            role="radio"
+            aria-checked={settings.scores_visibility === key}
+            className={`radio-option ${settings.scores_visibility === key ? 'on' : ''}`}
+            disabled={!isDirector}
+            onClick={() => save({ scores_visibility: key }, `Lead scores: ${SCORES_VISIBILITY_LABELS[key]}`)}
+          >
+            <span className="radio-dot" aria-hidden="true" />
+            <span><strong>{SCORES_VISIBILITY_LABELS[key]}</strong><small>{hint}</small></span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -307,11 +344,22 @@ function ListEditor({ items, noun, onChange }: { items: string[]; noun: string; 
 /* ------------------------------------------------------------------ */
 function LeadsEditor() {
   const { rows, run, move } = useTable<HohLead>('hoh_leads');
+  const { isDirector } = useApp();
   const confirm = useConfirm();
+  const [people, setPeople] = useState<Profile[]>([]);
+  useEffect(() => {
+    if (!isDirector) return;
+    supabase
+      .from('profiles')
+      .select('*')
+      .order('full_name')
+      .then(({ data }) => setPeople(((data as Profile[]) ?? []).filter((p) => p.role !== 'pending' && p.role !== 'kitchen')));
+  }, [isDirector]);
   return (
     <section className="card">
       <SectionIntro title="HOH Leads">
-        The names the shared kitchen device can pick as Shift Lead. Hide a lead who has left; their name stays on past entries.
+        The names the shared kitchen device can pick as Shift Lead. Ratings of each shift are credited to its Shift Lead. Hide a lead who has left to keep their score history.
+        {isDirector && ' If a lead has their own account, link it so handoffs they submit from their phone count for them.'}
       </SectionIntro>
       <AddRow placeholder="Lead's name" onAdd={(name) => run(supabase.from('hoh_leads').insert({ name, sort_order: nextOrder(rows) }), `Added ${name}`)} />
       {rows.length === 0 ? (
@@ -322,12 +370,27 @@ function LeadsEditor() {
             <li key={l.id} className={l.active ? '' : 'inactive'}>
               <Reorder index={i} count={rows.length} onMove={move} />
               <InlineText label="Lead name" value={l.name} onSave={(name) => run(supabase.from('hoh_leads').update({ name }).eq('id', l.id))} />
+              {isDirector && (
+                <select
+                  className="link-select"
+                  aria-label={`Account linked to ${l.name}`}
+                  value={l.profile_id ?? ''}
+                  onChange={(e) => run(supabase.from('hoh_leads').update({ profile_id: e.target.value || null }).eq('id', l.id), e.target.value ? 'Account linked' : 'Account unlinked')}
+                >
+                  <option value="">No linked account</option>
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id} disabled={rows.some((r) => r.profile_id === p.id && r.id !== l.id)}>
+                      {p.full_name || 'Unnamed'} ({ROLE_LABELS[p.role]})
+                    </option>
+                  ))}
+                </select>
+              )}
               <ActiveToggle active={l.active} onChange={(active) => run(supabase.from('hoh_leads').update({ active }).eq('id', l.id))} />
               <button
                 className="icon-btn"
                 aria-label={`Delete ${l.name}`}
                 onClick={async () => {
-                  if (await confirm({ title: `Delete ${l.name}?`, body: 'Past entries keep their name. To keep them selectable later, hide them instead.', confirmLabel: 'Delete', danger: true })) {
+                  if (await confirm({ title: `Delete ${l.name}?`, body: 'Their ratings would no longer count toward a lead score. To keep their score history, hide them instead.', confirmLabel: 'Delete', danger: true })) {
                     run(supabase.from('hoh_leads').delete().eq('id', l.id), 'Deleted');
                   }
                 }}

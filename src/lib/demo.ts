@@ -11,12 +11,13 @@ type Row = Record<string, any>;
 type Db = Record<string, Row[]>;
 type Result = { data: any; error: { message: string; code?: string } | null };
 
-const DB_KEY = 'hoh.demo.db.v3';
+const DB_KEY = 'hoh.demo.db.v4';
 const SESSION_KEY = 'hoh.demo.session.v1';
 
 export const DEMO_ACCOUNTS = [
   { email: 'kitchen@demo', label: 'Store tablet', hint: 'Shared kitchen device: pick a Shift Lead, entries get their name' },
   { email: 'director@demo', label: 'Director', hint: 'Full access, including Setup and approving team accounts' },
+  { email: 'lead@demo', label: 'HOH Lead (Jordan)', hint: "Jordan's own account, linked to the Jordan lead. Can't see scores unless a director allows it" },
   { email: 'member@demo', label: 'Team member', hint: 'Personal account: entries get their own name' },
 ];
 
@@ -72,11 +73,12 @@ function seed(): Db {
     { id: 'u-kitchen', email: 'kitchen@demo', full_name: 'Store Kitchen', role: 'kitchen', created_at: minutesAgo(60 * 24 * 30) },
     { id: 'u-director', email: 'director@demo', full_name: 'Alex Rivera', role: 'director', created_at: minutesAgo(60 * 24 * 40) },
     { id: 'u-member', email: 'member@demo', full_name: 'Sam Lee', role: 'team_member', created_at: minutesAgo(60 * 24 * 10) },
+    { id: 'u-lead', email: 'lead@demo', full_name: 'Jordan Ellis', role: 'lead', created_at: minutesAgo(60 * 24 * 60) },
     { id: 'u-new', email: 'new@demo', full_name: 'Riley Brooks', role: 'pending', created_at: minutesAgo(90) },
   ];
 
   const leads: Row[] = ['Jordan', 'Taylor', 'Morgan', 'Avery'].map((name, i) => ({
-    id: `lead-${i + 1}`, name, active: true, sort_order: i + 1, created_at: now,
+    id: `lead-${i + 1}`, name, active: true, sort_order: i + 1, created_at: now, profile_id: i === 0 ? 'u-lead' : null,
   }));
 
   const templateDefs: [string, string, string[]][] = [
@@ -149,26 +151,85 @@ function seed(): Db {
     status: 'resolved', resolved_at: minutesAgo(60 * 4), resolved_by_name: 'Alex Rivera', resolution_notes: 'Replaced gasket',
   });
 
-  // Shift handoffs: yesterday both shifts, and today's AM once the PM shift has started.
+  // Shift handoffs and lead ratings: eight weeks of AM/PM shifts. Each lead has a steady pattern
+  // (Avery strong, Jordan solid, Taylor improving, Morgan slipping) so the Lead Scores page has a story.
   const handoffs: Row[] = [];
   const photos: Row[] = [];
-  const handoff = (date: string, shift: string, by: string, mins: number, notes: string | null, pics: string[], rating?: [number, string | null, string]) => {
-    const id = uid();
-    handoffs.push({
-      id, shift_date: date, shift, notes, notes_by_name: notes ? by : null, notes_at: notes ? minutesAgo(mins) : null,
-      submitted_at: minutesAgo(mins), submitted_by_name: by,
-      rating: rating?.[0] ?? null, rating_comment: rating?.[1] ?? null, rated_by_name: rating?.[2] ?? null, rated_at: rating ? minutesAgo(mins - 20) : null,
-      created_at: minutesAgo(mins),
-    });
-    pics.forEach((title, i) => {
-      const path = `demo/${date}-${shift}-${i}.svg`;
-      demoFiles.set(path, sampleSetupPhoto(title, 200 + i * 35));
-      photos.push({ id: uid(), handoff_id: id, path, user_id: 'u-kitchen', uploaded_by_name: by, created_at: minutesAgo(mins + 2) });
-    });
+  const ratings: Row[] = [];
+  let seedN = 20261114;
+  const rand = () => {
+    seedN = (seedN * 1664525 + 1013904223) % 4294967296;
+    return seedN / 4294967296;
   };
-  handoff(yesterday, 'AM', 'Morgan', 60 * 26, 'Breading station fully stocked. We ran low on spicy breading, more is thawing.', ['Breading table', 'Fry station'], [4, 'Clean line, just restock the sauces next time.', 'Avery']);
-  handoff(yesterday, 'PM', 'Avery', 60 * 16, 'Closed clean. Fryer 3 still slow, left a kitchen note.', ['Breading table after close', 'Fryers covered', 'Walk-in'], pmStarted ? [5, 'Best close all week. Thank you!', 'Jordan'] : undefined);
-  if (pmStarted) handoff(today, 'AM', 'Jordan', 25, 'Busy lunch. Prep is caught up, filets thawing for dinner.', ['Shift swap: breading', 'Shift swap: fries']);
+  const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
+  ['Breading table', 'Fry station', 'Walk-in cooler'].forEach((title, i) => demoFiles.set(`demo/generic-${i}.svg`, sampleSetupPhoto(title, 190 + i * 40)));
+  const leadIds = { Jordan: 'lead-1', Taylor: 'lead-2', Morgan: 'lead-3', Avery: 'lead-4' } as const;
+  type LeadName = keyof typeof leadIds;
+  const DAYS = 56;
+  const meanFor = (name: LeadName, t: number) => ({ Avery: 4.6, Jordan: 4.2, Taylor: 3.2 + 0.9 * t, Morgan: 4.3 - 1.0 * t })[name];
+  const submitP: Record<LeadName, number> = { Avery: 0.97, Jordan: 0.94, Taylor: 0.9, Morgan: 0.85 };
+  const COMMENTS: Record<number, string[]> = {
+    5: ['Best setup all week. Thank you!', 'Everything stocked, labeled and wiped down.', 'Spotless line. Walked right into service.'],
+    4: ['Clean line, just restock the sauces next time.', 'Good setup. Breading was a little low.', 'Solid. Fryer 2 still needed filtering.'],
+    3: ["Fryers weren't filtered.", 'Prep was behind when we came in.', 'Okay, but the walk-in was messy.'],
+    2: ['Line not stocked and trash was full.', 'No labels on product in the walk-in.', 'Breading table was not broken down.'],
+    1: ['Nothing was set up for us.', 'Had to close down the line to restock.'],
+  };
+  const leadFor = (daysAgo: number, shift: 'AM' | 'PM'): LeadName =>
+    shift === 'AM' ? (daysAgo % 2 === 0 ? 'Jordan' : 'Taylor') : daysAgo % 9 === 4 ? 'Taylor' : daysAgo % 2 === 0 ? 'Avery' : 'Morgan';
+  const at = (date: string, h: number, m: number) => {
+    const [y, mo, d] = date.split('-').map(Number);
+    return new Date(y, mo - 1, d, h, m).toISOString();
+  };
+  const SPECIAL: Record<string, { notes: string; pics: string[] }> = {
+    [`${yesterday}|AM`]: { notes: 'Breading station fully stocked. We ran low on spicy breading, more is thawing.', pics: ['Breading table', 'Fry station'] },
+    [`${yesterday}|PM`]: { notes: 'Closed clean. Fryer 3 still slow, left a kitchen note.', pics: ['Breading table after close', 'Fryers covered', 'Walk-in'] },
+    [`${today}|AM`]: { notes: 'Busy lunch. Prep is caught up, filets thawing for dinner.', pics: ['Shift swap: breading', 'Shift swap: fries'] },
+  };
+  // The shift right before the current one is left unrated so the rating card shows.
+  const unratedKey = pmStarted ? `${today}|AM` : `${yesterday}|PM`;
+  const slots: { date: string; shift: 'AM' | 'PM'; daysAgo: number }[] = [];
+  for (let daysAgo = DAYS; daysAgo >= 1; daysAgo--) for (const sh of ['AM', 'PM'] as const) slots.push({ date: addDays(today, -daysAgo), shift: sh, daysAgo });
+  if (pmStarted) slots.push({ date: today, shift: 'AM', daysAgo: 0 });
+  slots.forEach((slot, idx) => {
+    const name = leadFor(slot.daysAgo, slot.shift);
+    const key = `${slot.date}|${slot.shift}`;
+    const special = SPECIAL[key];
+    const submitted = !!special || rand() < submitP[name];
+    const [eh, em] = slot.shift === 'AM' ? [13, 50] : [22, 40];
+    const id = uid();
+    const h: Row = {
+      id, shift_date: slot.date, shift: slot.shift, lead_id: leadIds[name], lead_name: name,
+      notes: special?.notes ?? null, notes_by_name: special ? name : null, notes_at: special ? at(slot.date, eh, em) : null,
+      submitted_at: submitted ? at(slot.date, eh, em) : null, submitted_by_name: submitted ? name : null,
+      rated_by_name: null, rated_at: null, created_at: at(slot.date, eh - 8, 0),
+    };
+    handoffs.push(h);
+    if (submitted) {
+      const pics = special?.pics ?? Array.from({ length: 1 + Math.floor(rand() * 3) }, (_, i) => `generic-${i}`);
+      pics.forEach((p, i) => {
+        let path = `demo/${p}.svg`;
+        if (special) {
+          path = `demo/${slot.date}-${slot.shift}-${i}.svg`;
+          demoFiles.set(path, sampleSetupPhoto(p, 200 + i * 35));
+        }
+        photos.push({ id: uid(), handoff_id: id, path, user_id: 'u-kitchen', uploaded_by_name: name, created_at: at(slot.date, eh, em - 5) });
+      });
+    }
+    // The incoming shift's lead rates it (never their own shift).
+    const next = slots[idx + 1];
+    if (!next || key === unratedKey) return;
+    const incoming = leadFor(next.daysAgo, next.shift);
+    if (incoming === name || rand() > 0.9) return;
+    const t = 1 - slot.daysAgo / DAYS;
+    const rating = Math.max(1, Math.min(5, Math.round(meanFor(name, t) + (rand() - 0.5) * 1.8)));
+    const ratedAt = slot.shift === 'AM' ? at(slot.date, 14, 20) : at(addDays(slot.date, 1), 5, 35);
+    ratings.push({
+      handoff_id: id, rating, comment: rand() < 0.45 ? pick(COMMENTS[rating]) : null,
+      rated_by_user: 'u-kitchen', rated_by_lead: leadIds[incoming], rated_by_name: incoming, rated_at: ratedAt,
+    });
+    Object.assign(h, { rated_by_name: incoming, rated_at: ratedAt });
+  });
 
   const positions: Row[] = ['Breading', 'Fries', 'Machines', 'Prep', 'Grill', 'Dish'].map((name, i) => ({
     id: `pos-${i + 1}`, name, description: null, sort_order: i + 1, active: true, created_at: now,
@@ -192,7 +253,7 @@ function seed(): Db {
       { id: uid(), lead_id: 'lead-4', lead_name: 'Avery', message: 'Ran a spotless PM close last night. Every station was stocked and ready for AM.', created_by_name: 'Alex Rivera', created_at: minutesAgo(60 * 9) },
       { id: uid(), lead_id: 'lead-1', lead_name: 'Jordan', message: 'Kept the line calm during Saturday’s catering rush.', created_by_name: 'Alex Rivera', created_at: minutesAgo(60 * 24 * 4) },
     ],
-    shift_handoffs: handoffs, handoff_photos: photos, positions, position_files: positionFiles,
+    shift_handoffs: handoffs, handoff_photos: photos, shift_ratings: ratings, positions, position_files: positionFiles,
   };
 }
 
@@ -267,6 +328,34 @@ const me = () => db.profiles.find((p) => p.id === session?.user.id) ?? null;
 const isManager = () => ['lead', 'director'].includes(me()?.role);
 const isActive = () => !!me() && me()!.role !== 'pending';
 
+/** Mirrors public.can_view_scores(): directors always; HOH Leads or everyone if a director allows it. */
+const canViewScores = () => {
+  const role = me()?.role;
+  const vis = db.app_settings?.[0]?.scores_visibility ?? 'directors';
+  return role === 'director' || (vis === 'managers' && role === 'lead') || (vis === 'everyone' && isActive());
+};
+/** Mirrors public.actor_lead_id(): the chosen Shift Lead on the shared device, or the lead linked to this account. */
+const actorLeadId = (leadId: string | null): string | null => {
+  if (me()?.role === 'kitchen') return db.hoh_leads.find((l) => l.id === leadId && l.active)?.id ?? null;
+  return db.hoh_leads.find((l) => l.profile_id && l.profile_id === session?.user.id && l.active)?.id ?? null;
+};
+
+/** Read-only views, computed like the real database views. */
+const VIEWS: Record<string, () => Row[]> = {
+  lead_rating_history: () =>
+    db.shift_ratings.flatMap((r) => {
+      const h = db.shift_handoffs.find((x) => x.id === r.handoff_id);
+      if (!h) return [];
+      return [{
+        handoff_id: h.id, shift_date: h.shift_date, shift: h.shift, lead_id: h.lead_id, lead_name: h.lead_name,
+        rating: r.rating, comment: r.comment, rated_by_name: r.rated_by_name, rated_at: r.rated_at,
+        handoff_submitted: !!h.submitted_at, photo_count: db.handoff_photos.filter((p) => p.handoff_id === h.id).length,
+      }];
+    }),
+};
+const SCORE_TABLES = ['shift_ratings', 'lead_rating_history'];
+const keyOf = (r: Row) => r.id ?? r.handoff_id ?? r.week_start;
+
 const rls = (table: string): Result => ({ data: null, error: { message: `new row violates row-level security policy for table "${table}"` } });
 const fail = (message: string, code?: string): Result => ({ data: null, error: { message, code } });
 
@@ -316,6 +405,7 @@ class Query implements PromiseLike<Result> {
   gte(c: string, v: any) { this.filters.push((r) => r[c] >= v); return this; }
   lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
   in(c: string, vs: unknown[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
+  not(c: string, op: string, v: unknown) { this.filters.push((r) => (op === 'is' && v === null ? r[c] !== null && r[c] !== undefined : r[c] !== v)); return this; }
   order(c: string, opts: { ascending?: boolean } = {}) { this.orders.push([c, opts.ascending !== false]); return this; }
   limit(n: number) { this.max = n; return this; }
   single() { this.one = 'single'; return this; }
@@ -337,8 +427,9 @@ class Query implements PromiseLike<Result> {
 
   private visible(): Row[] {
     if (!session) return [];
-    let rows = db[this.table] ?? [];
+    let rows = VIEWS[this.table] ? VIEWS[this.table]() : db[this.table] ?? [];
     if (!isActive()) rows = this.table === 'profiles' ? rows.filter((r) => r.id === session!.user.id) : [];
+    if (SCORE_TABLES.includes(this.table) && !canViewScores()) rows = [];
     return rows.filter((r) => this.filters.every((f) => f(r)));
   }
 
@@ -395,6 +486,11 @@ class Query implements PromiseLike<Result> {
 
       if (this.op === 'update') {
         if ((CONFIG_TABLES.includes(t) || t === 'app_settings') && !isManager()) return this.returning ? this.shape([]) : { data: null, error: null };
+        if (t === 'app_settings' && 'scores_visibility' in this.payload && me()?.role !== 'director' && targets.some((r) => r.scores_visibility !== this.payload.scores_visibility)) {
+          return fail('Only directors can change who sees lead scores');
+        }
+        if (t === 'hoh_leads' && 'profile_id' in this.payload && me()?.role !== 'director') return fail('Only directors can link accounts to HOH Leads');
+        if (VIEWS[t] || t === 'shift_ratings' || t === 'shift_handoffs') return this.returning ? this.shape([]) : { data: null, error: null };
         if (t === 'profiles') {
           for (const r of targets) {
             if (r.id !== session.user.id && me()?.role !== 'director') continue;
@@ -420,10 +516,15 @@ class Query implements PromiseLike<Result> {
       let removable = targets;
       if (CONFIG_TABLES.includes(t)) removable = isManager() ? targets : [];
       else if (LOG_TABLES.includes(t) || t === 'handoff_photos') removable = targets.filter((r) => r.user_id === session!.user.id || isManager());
-      else if (t === 'shift_handoffs' || t === 'app_settings') removable = [];
+      else if (t === 'shift_handoffs' || t === 'app_settings' || VIEWS[t]) removable = [];
+      else if (t === 'shift_ratings') removable = me()?.role === 'director' ? targets : [];
       else if (t === 'profiles') removable = [];
-      const ids = new Set(removable.map((r) => r.id));
-      db[t] = db[t].filter((r) => !ids.has(r.id));
+      const ids = new Set(removable.map(keyOf));
+      db[t] = (db[t] ?? []).filter((r) => !ids.has(keyOf(r)));
+      if (t === 'shift_ratings') {
+        db.shift_handoffs.forEach((h) => ids.has(h.id) && Object.assign(h, { rated_by_name: null, rated_at: null }));
+        emit('shift_handoffs');
+      }
       // Cascades, like the real foreign keys.
       if (t === 'checklist_templates') {
         db.checklist_items = db.checklist_items.filter((r) => !ids.has(r.template_id));
@@ -432,7 +533,7 @@ class Query implements PromiseLike<Result> {
       if (t === 'checklist_items') db.checklist_checks = db.checklist_checks.filter((r) => !ids.has(r.item_id));
       if (t === 'equipment') db.equipment_logs = db.equipment_logs.filter((r) => !ids.has(r.equipment_id));
       if (t === 'positions') db.position_files = db.position_files.filter((r) => !ids.has(r.position_id));
-      if (t === 'hoh_leads') for (const lt of LOG_TABLES) db[lt].forEach((r) => ids.has(r.lead_id) && (r.lead_id = null));
+      if (t === 'hoh_leads') for (const lt of [...LOG_TABLES, 'shift_handoffs']) db[lt].forEach((r) => ids.has(r.lead_id) && (r.lead_id = null));
       persist();
       emit(t);
       if (t === 'checklist_templates' || t === 'checklist_items') emit('checklist_checks');
@@ -453,30 +554,77 @@ export function createDemoClient() {
 
     rpc: async (fn: string, args: Row): Promise<Result> => {
       await new Promise((r) => setTimeout(r, 60));
-      const name = actorName(args.p_lead_id ?? null);
-      if (typeof name !== 'string') return name;
-      if (fn === 'save_handoff' || fn === 'rate_handoff' || fn === 'add_handoff_photo') {
-        let h = db.shift_handoffs.find((x) => x.shift_date === args.p_date && x.shift === args.p_shift);
+      const role = me()?.role;
+      const ensureHandoff = (date: string, shift: string) => {
+        let h = db.shift_handoffs.find((x) => x.shift_date === date && x.shift === shift);
         if (!h) {
-          h = { id: uid(), shift_date: args.p_date, shift: args.p_shift, notes: null, notes_by_name: null, notes_at: null, submitted_at: null, submitted_by_name: null, rating: null, rating_comment: null, rated_by_name: null, rated_at: null, created_at: new Date().toISOString() };
+          h = { id: uid(), shift_date: date, shift, lead_id: null, lead_name: null, notes: null, notes_by_name: null, notes_at: null, submitted_at: null, submitted_by_name: null, rated_by_name: null, rated_at: null, created_at: new Date().toISOString() };
           db.shift_handoffs.push(h);
         }
-        const nowIso = new Date().toISOString();
+        return h;
+      };
+      const done = (data: unknown = null): Result => {
+        persist();
+        emit('shift_handoffs');
+        emit('shift_ratings');
+        return { data, error: null };
+      };
+      const isRated = (h: Row) => db.shift_ratings.some((r) => r.handoff_id === h.id);
+
+      if (fn === 'set_shift_lead') {
+        if (!role || !['kitchen', 'lead', 'director'].includes(role)) return fail('Only the shared kitchen device or a lead can set the Shift Lead');
+        const lead = db.hoh_leads.find((l) => l.id === args.p_lead_id && l.active);
+        if (!lead) return fail('That Shift Lead is not on the active HOH Leads list');
+        const h = ensureHandoff(args.p_date, args.p_shift);
+        if (role !== 'director' && isRated(h)) return fail('That shift has already been rated. Ask a director to change its Shift Lead.');
+        Object.assign(h, { lead_id: lead.id, lead_name: lead.name });
+        return done();
+      }
+
+      const name = actorName(args.p_lead_id ?? null);
+      if (typeof name !== 'string') return name;
+      const nowIso = new Date().toISOString();
+
+      if (fn === 'save_handoff' || fn === 'add_handoff_photo') {
+        const h = ensureHandoff(args.p_date, args.p_shift);
         if (fn === 'save_handoff') {
           const notes = (args.p_notes ?? '').trim() || null;
           Object.assign(h, { notes, notes_by_name: notes ? name : null, notes_at: notes ? nowIso : null });
-          if (args.p_submit) Object.assign(h, { submitted_at: nowIso, submitted_by_name: name });
-        } else if (fn === 'rate_handoff') {
-          if (!(args.p_rating >= 1 && args.p_rating <= 5)) return fail('Choose 1 to 5 stars');
-          Object.assign(h, { rating: args.p_rating, rating_comment: (args.p_comment ?? '').trim() || null, rated_by_name: name, rated_at: nowIso });
+          if (args.p_submit) {
+            Object.assign(h, { submitted_at: nowIso, submitted_by_name: name });
+            const lead = actorLeadId(args.p_lead_id ?? null);
+            if (lead && (role === 'kitchen' || !h.lead_id) && !isRated(h)) {
+              Object.assign(h, { lead_id: lead, lead_name: db.hoh_leads.find((l) => l.id === lead)?.name ?? null });
+            }
+          }
         } else {
           db.handoff_photos.push({ id: uid(), handoff_id: h.id, path: args.p_path, user_id: session?.user.id, uploaded_by_name: name, created_at: nowIso });
           emit('handoff_photos');
         }
-        persist();
-        emit('shift_handoffs');
-        return { data: h.id, error: null };
+        return done(h.id);
       }
+
+      if (fn === 'rate_shift' || fn === 'rate_handoff') {
+        if (!(args.p_rating >= 1 && args.p_rating <= 5)) return fail('Choose 1 to 5 stars');
+        const raterLead = actorLeadId(args.p_lead_id ?? null);
+        const h = ensureHandoff(args.p_date, args.p_shift);
+        if (!h.lead_id) {
+          if (!args.p_rated_lead_id) return fail(`Choose who was the Shift Lead for the ${args.p_shift} shift`);
+          const lead = db.hoh_leads.find((l) => l.id === args.p_rated_lead_id && l.active);
+          if (!lead) return fail('That Shift Lead is not on the active HOH Leads list');
+          Object.assign(h, { lead_id: lead.id, lead_name: lead.name });
+        }
+        if (raterLead && raterLead === h.lead_id) return fail("You can't rate your own shift");
+        const prev = db.shift_ratings.find((r) => r.handoff_id === h.id);
+        if (prev && !isManager() && !(prev.rated_by_user === session?.user.id && (prev.rated_by_lead ?? null) === raterLead)) {
+          return fail(`This shift was already rated by ${prev.rated_by_name}`);
+        }
+        const row = { handoff_id: h.id, rating: args.p_rating, comment: (args.p_comment ?? '').trim() || null, rated_by_user: session?.user.id, rated_by_lead: raterLead, rated_by_name: name, rated_at: nowIso };
+        db.shift_ratings = [...db.shift_ratings.filter((r) => r.handoff_id !== h.id), row];
+        Object.assign(h, { rated_by_name: name, rated_at: nowIso });
+        return done(h.id);
+      }
+
       if (fn !== 'resolve_equipment_issue') return fail(`Unknown function ${fn}`);
       const log = db.equipment_logs.find((l) => l.id === args.p_log_id && l.status === 'open');
       if (!log) return fail('Issue not found or already resolved');

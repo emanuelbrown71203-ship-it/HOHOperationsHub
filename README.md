@@ -6,11 +6,23 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 
 ## Features
 
-- **Shift checklists**: Opening, Mid-Shift, Closing and Weekly Deep Clean lists (all editable). Tap to check off; each item shows who did it and when. You can look back at past days.
-- **Waste log**: quick-pick items, quantity, unit and reason. Shows daily, 7-day and 30-day summaries by item and reason, plus CSV export.
-- **Equipment log**: log filter changes, oil changes, cleaning and maintenance, or report an issue. Open issues stay at the top until someone resolves them. The Home screen shows how long since each fryer was filtered. CSV export.
-- **Live updates**: when something is checked or logged on one device, every other device updates within seconds.
-- **Phone and tablet layouts**: bottom tabs on phones, sidebar on tablets and computers. Can be added to the home screen as an app.
+- **Home**: the current shift (AM or PM) with today's day-dot color, the **focus of the week**, **shoutouts** for HOH Leads, the shift handoff status, and pinned kitchen notes.
+- **Shift handoff**: the leaving shift uploads photos (required) and optional notes at the shift swap and at close. The incoming shift **rates the previous shift's setup from 1 to 5 stars**, credited to the HOH Lead who ran that shift.
+- **Lead Scores**: each HOH Lead's average rating, change versus the previous period, weekly trend against the store average, star breakdown, handoff completion and every comment. Ratings export to CSV. Only directors can see scores unless a director changes it in Setup → Store.
+- **Kitchen notes**: notes on any equipment (or the kitchen in general), with an optional photo, pinned on Home until someone marks them fixed.
+- **Checklists**: a few required **HOH Lead checklists** checked off in the app (daily or weekly), and **position checklists** where the paper checklist for each position is attached as a photo or PDF.
+- **Waste log**: quick-pick items, reasons and units, with summaries and CSV export.
+- **Setup** (leads and directors): store name, shift start times, waste reasons and units, HOH Leads, checklists, positions, equipment and team accounts. No code changes needed.
+- **Live updates** across devices, **phone and tablet layouts**, and a light or dark theme per device.
+
+## Lead scores: how a rating is credited
+
+1. When the shared kitchen device picks the **Shift Lead**, the app records that lead as running the shift. (A lead who submits the handoff from their own linked account is recorded too.)
+2. The incoming shift rates the setup they walked into. The rating counts for the recorded Shift Lead. If no lead was recorded, the person rating picks one from the HOH Leads list.
+3. Leads can't rate their own shift, and a rating can only be changed by the person who made it or by a lead or director.
+4. Directors can move a rating to the correct lead or delete it from the lead's score page.
+
+The record lives in the `shift_ratings` table, with two read-only views for browsing in the Supabase Table Editor: `lead_rating_history` (one row per rating) and `lead_scores` (one row per lead).
 
 ## Who gets credit for an entry
 
@@ -62,3 +74,6 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0002_starter_data.sql`: starter checklists, equipment and waste items
 - `0003_lock_down_functions.sql`: removes public access to internal functions
 - `0004_realtime_setup_tables.sql`: live updates for the setup lists
+- `0005_shifts_handoffs_notes.sql`: store settings, AM/PM shifts, focus of the week, shoutouts, shift handoffs with photos, position checklists, file storage
+- `0006_lead_scores.sql`: shift ratings credited to HOH Leads, score visibility, linked lead accounts, score views
+- `0007_only_directors_move_rated_shifts.sql`: only directors can move a rated shift to a different lead

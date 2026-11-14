@@ -8,24 +8,25 @@ import Icon, { type IconName } from './Icon';
 import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 
-type NavItem = { to: string; label: string; icon: IconName; section: string; managerOnly?: boolean };
+type NavItem = { to: string; label: string; icon: IconName; section: string; managerOnly?: boolean; scoresOnly?: boolean };
 const NAV: NavItem[] = [
   { to: '/', label: 'Home', icon: 'home', section: 'home' },
   { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
   { to: '/handoff', label: 'Handoff', icon: 'swap', section: 'handoff' },
   { to: '/notes', label: 'Notes', icon: 'note', section: 'notes' },
   { to: '/waste', label: 'Waste', icon: 'trash', section: 'waste' },
+  { to: '/scores', label: 'Lead Scores', icon: 'trophy', section: 'scores', scoresOnly: true },
   { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', managerOnly: true },
 ];
 // Phone tab bar: the four daily screens, plus More (waste, setup, account).
 const TABS: NavItem[] = [...NAV.slice(0, 4), { to: '/more', label: 'More', icon: 'grid', section: 'setup' }];
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { isKitchen, actorName, shift, setShift, shiftNames, isManager, profile, settings } = useApp();
+  const { isKitchen, actorName, shift, setShift, shiftNames, isManager, profile, settings, canViewScores } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
   const needsLead = isKitchen && !actorName;
 
-  const nav = NAV.filter((n) => !n.managerOnly || isManager);
+  const nav = NAV.filter((n) => (!n.managerOnly || isManager) && (!n.scoresOnly || canViewScores));
 
   return (
     <div className="shell">

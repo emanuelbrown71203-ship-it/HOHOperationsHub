@@ -20,6 +20,8 @@ export interface HohLead {
   name: string;
   active: boolean;
   sort_order: number;
+  /** The person's own account, if a director linked one (their handoffs are then credited to them). */
+  profile_id: string | null;
 }
 
 export interface ChecklistTemplate {
@@ -125,11 +127,45 @@ export interface ShiftHandoff {
   notes_at: string | null;
   submitted_at: string | null;
   submitted_by_name: string | null;
-  rating: number | null;
-  rating_comment: string | null;
+  /** The HOH Lead who ran this shift (the one its rating counts for). */
+  lead_id: string | null;
+  lead_name: string | null;
+  /** Everyone can see that a shift was rated and by whom; the score itself is in shift_ratings. */
   rated_by_name: string | null;
   rated_at: string | null;
 }
+
+/** A rating (readable only by people allowed to see lead scores). */
+export interface ShiftRating {
+  handoff_id: string;
+  rating: number;
+  comment: string | null;
+  rated_by_name: string;
+  rated_at: string;
+}
+
+/** One row of the lead score record (the lead_rating_history view). */
+export interface RatingRecord {
+  handoff_id: string;
+  shift_date: string;
+  shift: string;
+  lead_id: string | null;
+  lead_name: string | null;
+  rating: number;
+  comment: string | null;
+  rated_by_name: string;
+  rated_at: string;
+  handoff_submitted: boolean;
+  photo_count: number;
+}
+
+export type ScoresVisibility = 'directors' | 'managers' | 'everyone';
+
+export const SCORES_VISIBILITY_LABELS: Record<ScoresVisibility, string> = {
+  directors: 'Directors only',
+  managers: 'Directors and HOH Leads',
+  everyone: 'Everyone on the team',
+};
 
 export interface HandoffPhoto {
   id: string;
@@ -168,6 +204,7 @@ export interface AppSettings {
   shifts: ShiftDef[];
   waste_reasons: string[];
   waste_units: string[];
+  scores_visibility: ScoresVisibility;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -178,6 +215,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   waste_reasons: ['Overcooked / burnt', 'Hold time expired', 'Dropped / contaminated', 'Overproduction', 'Quality issue', 'Customer return', 'Other'],
   waste_units: ['each', 'lbs', 'orders', 'pans', 'bags', 'trays', 'cases'],
+  scores_visibility: 'directors',
 };
 
 const LEGACY_LOG_LABELS: Record<string, string> = {

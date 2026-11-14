@@ -76,6 +76,11 @@ interface AppState {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
 
+  /** Whether this person may see lead scores (set by directors in Setup → Store). */
+  canViewScores: boolean;
+  /** The HOH Lead this device or account acts as: the chosen Shift Lead, or the lead linked to this account. */
+  myLeadId: string | null;
+
   toast: (text: string, kind?: ToastKind) => void;
   /** Returns false (and shows a message) if nobody can be credited for a new entry yet. */
   ensureActor: () => boolean;
@@ -226,14 +231,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const isKitchen = profile?.role === 'kitchen';
   const actorName = isKitchen ? leads.find((l) => l.id === leadId)?.name ?? null : profile?.full_name || null;
+  const myLeadId = isKitchen ? leadId : leads.find((l) => l.profile_id && l.profile_id === profile?.id)?.id ?? null;
+  const isDirectorRole = profile?.role === 'director';
+  const isManagerRole = profile?.role === 'lead' || isDirectorRole;
+  const canViewScores =
+    isDirectorRole || (settings.scores_visibility === 'managers' && isManagerRole) || (settings.scores_visibility === 'everyone' && active);
+
+  /* ---- record the Shift Lead for this shift (shared device) ---- */
+  // Ratings of this shift are credited to the lead recorded here.
+  const recorded = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isKitchen || !leadId) return;
+    const key = `${today}|${shift}|${leadId}`;
+    if (recorded.current === key) return;
+    recorded.current = key;
+    supabase.rpc('set_shift_lead', { p_date: today, p_shift: shift, p_lead_id: leadId }).then(({ error }) => {
+      if (error) toastRef.current(error.message, 'error');
+    });
+  }, [isKitchen, leadId, today, shift]);
 
   /* ---- toasts ---- */
   const toastId = useRef(0);
+  const toastRef = useRef<(text: string, kind?: ToastKind) => void>(() => {});
   const toast = useCallback((text: string, kind: ToastKind = 'ok') => {
     const id = ++toastId.current;
     setToasts((t) => [...t, { id, text, kind }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 6000 : 2500);
   }, []);
+  toastRef.current = toast;
 
   const ensureActor = useCallback(() => {
     if (actorName) return true;
@@ -264,6 +289,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     actorLeadId: isKitchen ? leadId : null,
     theme,
     setTheme,
+    canViewScores,
+    myLeadId,
     toast,
     ensureActor,
   };

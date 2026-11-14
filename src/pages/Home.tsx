@@ -14,10 +14,10 @@ import { NoteCard, useKitchenNotes } from './Notes';
 import { RateCard, useHandoffs } from './Handoff';
 
 export default function Home() {
-  const { today, shift, shiftNames, settings, actorName, isKitchen } = useApp();
+  const { today, shift, shiftNames, settings, actorName, isKitchen, canViewScores } = useApp();
   const { progress } = useChecklists(today);
   const { open: openNotes, nameOf } = useKitchenNotes(today);
-  const { byKey, photosFor, reload: reloadHandoffs } = useHandoffs(today);
+  const { byKey, photosFor, ratingFor, reload: reloadHandoffs } = useHandoffs(today);
 
   const tone = shiftTone(shiftNames, shift);
   const shiftDef = settings.shifts.find((s) => s.name === shift);
@@ -68,24 +68,37 @@ export default function Home() {
 
       <div className="dash-grid">
         <div className="stack">
-          {prevHandoff?.rating ? (
+          {prevHandoff?.rated_at && !canViewScores ? (
             <section className="card sec-handoff">
               <div className="card-head">
                 <h2><span className="dot" />{prev.shift} shift setup</h2>
                 <Link to="/handoff" className="link-more">Handoff <Icon name="chevron" size={16} /></Link>
               </div>
               <div className="rated">
-                <Stars value={prevHandoff.rating} />
                 <div>
-                  <strong>{RATING_WORDS[prevHandoff.rating]}</strong>
-                  {prevHandoff.rating_comment && <p className="rated-comment">“{prevHandoff.rating_comment}”</p>}
-                  <span className="muted small">Rated by {prevHandoff.rated_by_name}</span>
+                  <strong className="rated-check"><Icon name="done" size={16} /> Rated by {prevHandoff.rated_by_name}</strong>
+                  {prevHandoff.lead_name && <span className="muted small">Shift Lead: {prevHandoff.lead_name}</span>}
+                </div>
+              </div>
+            </section>
+          ) : prevHandoff?.rated_at && canViewScores && ratingFor(prevHandoff) ? (
+            <section className="card sec-handoff">
+              <div className="card-head">
+                <h2><span className="dot" />{prev.shift} shift setup{prevHandoff.lead_name ? ` · ${prevHandoff.lead_name}` : ''}</h2>
+                <Link to="/scores" className="link-more">Lead scores <Icon name="chevron" size={16} /></Link>
+              </div>
+              <div className="rated">
+                <Stars value={ratingFor(prevHandoff)!.rating} />
+                <div>
+                  <strong>{RATING_WORDS[ratingFor(prevHandoff)!.rating]}</strong>
+                  {ratingFor(prevHandoff)!.comment && <p className="rated-comment">“{ratingFor(prevHandoff)!.comment}”</p>}
+                  <span className="muted small">Rated by {ratingFor(prevHandoff)!.rated_by_name}</span>
                 </div>
               </div>
             </section>
           ) : (
             <div className="sec-handoff">
-              <RateCard date={prev.date} shift={prev.shift} handoff={prevHandoff} photos={photosFor(prevHandoff)} onSaved={reloadHandoffs} compact />
+              <RateCard date={prev.date} shift={prev.shift} handoff={prevHandoff} rating={ratingFor(prevHandoff)} photos={photosFor(prevHandoff)} onSaved={reloadHandoffs} compact />
             </div>
           )}
 

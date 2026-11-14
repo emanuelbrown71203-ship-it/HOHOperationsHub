@@ -6,7 +6,7 @@ import { addDays, formatDateTime, formatDay, formatTime } from '../lib/dates';
 import { previousShift } from '../lib/handoff';
 import { removeFiles, uploadFile } from '../lib/files';
 import { shiftTone } from '../lib/tone';
-import type { HandoffPhoto, ShiftHandoff } from '../lib/types';
+import type { HandoffPhoto, ShiftHandoff, ShiftRating } from '../lib/types';
 import Icon from '../components/Icon';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import { PhotoPicker, PhotoThumb } from '../components/Photo';
@@ -16,8 +16,10 @@ const key = (date: string, shift: string) => `${date}|${shift}`;
 
 /** Handoffs + photos for the last two weeks, kept live. */
 export function useHandoffs(today: string) {
+  const { canViewScores } = useApp();
   const [handoffs, setHandoffs] = useState<ShiftHandoff[]>([]);
   const [photos, setPhotos] = useState<HandoffPhoto[]>([]);
+  const [ratings, setRatings] = useState<ShiftRating[]>([]);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -28,24 +30,33 @@ export function useHandoffs(today: string) {
     const list = (data as ShiftHandoff[]) ?? [];
     setHandoffs(list);
     if (list.length) {
-      const { data: ph } = await supabase.from('handoff_photos').select('*').in('handoff_id', list.map((h) => h.id)).order('created_at');
+      const ids = list.map((h) => h.id);
+      const [{ data: ph }, rt] = await Promise.all([
+        supabase.from('handoff_photos').select('*').in('handoff_id', ids).order('created_at'),
+        canViewScores ? supabase.from('shift_ratings').select('*').in('handoff_id', ids) : Promise.resolve({ data: [] }),
+      ]);
       setPhotos((ph as HandoffPhoto[]) ?? []);
-    } else setPhotos([]);
+      setRatings((rt.data as ShiftRating[]) ?? []);
+    } else {
+      setPhotos([]);
+      setRatings([]);
+    }
     setLoading(false);
-  }, [today]);
+  }, [today, canViewScores]);
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(['shift_handoffs', 'handoff_photos'], load);
+  useRealtime(['shift_handoffs', 'handoff_photos', 'shift_ratings'], load);
 
   const byKey = useMemo(() => new Map(handoffs.map((h) => [key(h.shift_date, h.shift), h])), [handoffs]);
   const photosFor = useCallback((h?: ShiftHandoff) => (h ? photos.filter((p) => p.handoff_id === h.id) : []), [photos]);
-  return { handoffs, byKey, photosFor, loading, reload: load };
+  const ratingFor = useCallback((h?: ShiftHandoff) => (h ? ratings.find((r) => r.handoff_id === h.id) : undefined), [ratings]);
+  return { handoffs, byKey, photosFor, ratingFor, loading, reload: load };
 }
 
 export default function Handoff() {
   const { today, shift, shiftNames } = useApp();
-  const { handoffs, byKey, photosFor, loading, reload } = useHandoffs(today);
+  const { handoffs, byKey, photosFor, ratingFor, loading, reload } = useHandoffs(today);
   const prev = previousShift(today, shift, shiftNames);
   const prevHandoff = byKey.get(key(prev.date, prev.shift));
   const mine = byKey.get(key(today, shift));
@@ -62,7 +73,7 @@ export default function Handoff() {
         <div className="spinner" />
       ) : (
         <>
-          <RateCard date={prev.date} shift={prev.shift} handoff={prevHandoff} photos={photosFor(prevHandoff)} onSaved={reload} />
+          <RateCard date={prev.date} shift={prev.shift} handoff={prevHandoff} rating={ratingFor(prevHandoff)} photos={photosFor(prevHandoff)} onSaved={reload} />
           <MyHandoffCard date={today} shift={shift} handoff={mine} photos={photosFor(mine)} onSaved={reload} />
 
           <section className="stack">
@@ -72,7 +83,7 @@ export default function Handoff() {
             ) : (
               <div className="handoff-history">
                 {history.map((h) => (
-                  <HistoryRow key={h.id} handoff={h} photos={photosFor(h)} tone={shiftTone(shiftNames, h.shift)} />
+                  <HistoryRow key={h.id} handoff={h} rating={ratingFor(h)} photos={photosFor(h)} tone={shiftTone(shiftNames, h.shift)} />
                 ))}
               </div>
             )}
@@ -93,26 +104,56 @@ function ShiftBadge({ shift, date }: { shift: string; date: string }) {
 }
 
 /* ---------------- Incoming shift: rate the previous setup ---------------- */
-export function RateCard({ date, shift, handoff, photos, onSaved, compact }: { date: string; shift: string; handoff?: ShiftHandoff; photos: HandoffPhoto[]; onSaved: () => void; compact?: boolean }) {
-  const { ensureActor, actorLeadId, toast } = useApp();
-  const [editing, setEditing] = useState(!handoff?.rating);
-  const [rating, setRating] = useState(handoff?.rating ?? 0);
-  const [comment, setComment] = useState(handoff?.rating_comment ?? '');
+export function RateCard({
+  date,
+  shift,
+  handoff,
+  rating: existing,
+  photos,
+  onSaved,
+  compact,
+}: {
+  date: string;
+  shift: string;
+  handoff?: ShiftHandoff;
+  rating?: ShiftRating;
+  photos: HandoffPhoto[];
+  onSaved: () => void;
+  compact?: boolean;
+}) {
+  const { ensureActor, actorLeadId, actorName, toast, leads, myLeadId, canViewScores, isManager } = useApp();
+  const rated = !!handoff?.rated_at;
+  const [editing, setEditing] = useState(!rated);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [pickedLead, setPickedLead] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    setEditing(!handoff?.rating);
-    setRating(handoff?.rating ?? 0);
-    setComment(handoff?.rating_comment ?? '');
-  }, [handoff?.rating, handoff?.rating_comment]);
+    setEditing(!handoff?.rated_at);
+    setRating(0);
+    setComment('');
+  }, [handoff?.rated_at]);
+
+  const leadName = handoff?.lead_name ?? leads.find((l) => l.id === pickedLead)?.name ?? null;
+  const ownShift = !!myLeadId && !!handoff?.lead_id && handoff.lead_id === myLeadId;
+  const canChange = isManager || (!!actorName && handoff?.rated_by_name === actorName);
 
   async function save() {
     if (!rating) return toast('Tap the stars to rate the setup', 'error');
+    if (!handoff?.lead_id && !pickedLead) return toast(`Choose who was the ${shift} Shift Lead`, 'error');
     if (!ensureActor()) return;
     setSaving(true);
-    const { error } = await supabase.rpc('rate_handoff', { p_date: date, p_shift: shift, p_rating: rating, p_comment: comment.trim() || null, p_lead_id: actorLeadId });
+    const { error } = await supabase.rpc('rate_shift', {
+      p_date: date,
+      p_shift: shift,
+      p_rating: rating,
+      p_comment: comment.trim() || null,
+      p_lead_id: actorLeadId,
+      p_rated_lead_id: handoff?.lead_id ? null : pickedLead,
+    });
     setSaving(false);
     if (error) return toast(errorMessage(error), 'error');
-    toast(`Rated the ${shift} shift ${rating} star${rating > 1 ? 's' : ''}`);
+    toast(`Rating recorded for ${leadName ?? 'the'}${leadName ? "'s" : ''} ${shift} shift`);
     setEditing(false);
     onSaved();
   }
@@ -123,6 +164,13 @@ export function RateCard({ date, shift, handoff, photos, onSaved, compact }: { d
         <h2><span className="dot" />Rate the {shift} shift's setup</h2>
         <ShiftBadge shift={shift} date={date} />
       </div>
+
+      {handoff?.lead_name && (
+        <div className="rated-lead">
+          <span className="avatar sm" aria-hidden="true">{handoff.lead_name.slice(0, 1).toUpperCase()}</span>
+          <span>Shift Lead <strong>{handoff.lead_name}</strong>{rated ? '' : ' · this rating counts toward their lead score'}</span>
+        </div>
+      )}
 
       {!compact && (
         <div className="left-for-you">
@@ -143,22 +191,47 @@ export function RateCard({ date, shift, handoff, photos, onSaved, compact }: { d
         </div>
       )}
 
-      {editing ? (
+      {ownShift && !rated ? (
+        <p className="own-shift">You ran the {shift} shift, so the rating has to come from someone else.</p>
+      ) : editing ? (
         <div className="rate-form">
+          {!handoff?.lead_id && (
+            <div className="field">
+              <span>Who was the {shift} Shift Lead?</span>
+              <div className="chips">
+                {leads.filter((l) => l.id !== myLeadId).map((l) => (
+                  <button key={l.id} type="button" className={`chip ${pickedLead === l.id ? 'on' : ''}`} onClick={() => setPickedLead(l.id)}>{l.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
           <Stars value={rating} onChange={setRating} size="lg" />
           <span className="rating-word">{RATING_WORDS[rating] || 'How was the setup when you came in?'}</span>
           <textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anything they did great, or should fix next time? (optional)" aria-label="Rating comment" />
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Submit rating'}</button>
+          <div className="row-gap wrap">
+            {rated && <button className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>}
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : rated ? 'Save new rating' : 'Submit rating'}</button>
+          </div>
+          <span className="muted small">{canViewScores ? 'Ratings are saved to the lead scores record.' : 'Ratings go to the lead scores record, which only management can see.'}</span>
         </div>
       ) : (
         <div className="rated">
-          <Stars value={handoff?.rating ?? 0} />
-          <div>
-            <strong>{RATING_WORDS[handoff?.rating ?? 0]}</strong>
-            {handoff?.rating_comment && <p className="rated-comment">“{handoff.rating_comment}”</p>}
-            <span className="muted small">Rated by {handoff?.rated_by_name}{handoff?.rated_at ? ` · ${formatTime(handoff.rated_at)}` : ''}</span>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>Change</button>
+          {canViewScores && existing ? (
+            <>
+              <Stars value={existing.rating} />
+              <div>
+                <strong>{RATING_WORDS[existing.rating]}</strong>
+                {existing.comment && <p className="rated-comment">“{existing.comment}”</p>}
+                <span className="muted small">Rated by {existing.rated_by_name} · {formatTime(existing.rated_at)}</span>
+              </div>
+            </>
+          ) : (
+            <div>
+              <strong className="rated-check"><Icon name="done" size={16} /> Rated</strong>
+              <span className="muted small">By {handoff?.rated_by_name}{handoff?.rated_at ? ` · ${formatTime(handoff.rated_at)}` : ''}</span>
+            </div>
+          )}
+          {canChange && <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>Change</button>}
         </div>
       )}
     </section>
@@ -167,7 +240,7 @@ export function RateCard({ date, shift, handoff, photos, onSaved, compact }: { d
 
 /* ---------------- Leaving shift: notes + required photos ---------------- */
 function MyHandoffCard({ date, shift, handoff, photos, onSaved }: { date: string; shift: string; handoff?: ShiftHandoff; photos: HandoffPhoto[]; onSaved: () => void }) {
-  const { ensureActor, actorLeadId, toast, session, isManager, shiftNames } = useApp();
+  const { ensureActor, actorLeadId, actorName, toast, session, isManager, shiftNames } = useApp();
   const confirm = useConfirm();
   const [notes, setNotes] = useState(handoff?.notes ?? '');
   const [saving, setSaving] = useState(false);
@@ -220,6 +293,12 @@ function MyHandoffCard({ date, shift, handoff, photos, onSaved }: { date: string
         <h2><span className="dot" />{isClose ? 'Close-out' : 'Shift swap'}: {shift} shift handoff</h2>
         <ShiftBadge shift={shift} date={date} />
       </div>
+      {(handoff?.lead_name || actorName) && (
+        <div className="rated-lead">
+          <span className="avatar sm" aria-hidden="true">{(handoff?.lead_name ?? actorName ?? '?').slice(0, 1).toUpperCase()}</span>
+          <span>Shift Lead on record: <strong>{handoff?.lead_name ?? actorName}</strong></span>
+        </div>
+      )}
       {submitted ? (
         <div className="done-banner"><Icon name="done" size={18} /> Submitted by {handoff?.submitted_by_name} at {formatTime(handoff!.submitted_at!)}. You can still add photos or update notes.</div>
       ) : (
@@ -253,7 +332,7 @@ function MyHandoffCard({ date, shift, handoff, photos, onSaved }: { date: string
   );
 }
 
-function HistoryRow({ handoff, photos, tone }: { handoff: ShiftHandoff; photos: HandoffPhoto[]; tone: string }) {
+function HistoryRow({ handoff, rating, photos, tone }: { handoff: ShiftHandoff; rating?: ShiftRating; photos: HandoffPhoto[]; tone: string }) {
   const [open, setOpen] = useState(false);
   return (
     <article className={`history-row tone-${tone}`}>
@@ -262,10 +341,11 @@ function HistoryRow({ handoff, photos, tone }: { handoff: ShiftHandoff; photos: 
         <span className="history-main">
           <strong>{formatDay(handoff.shift_date)}</strong>
           <span className="muted small">
-            {handoff.submitted_at ? `Submitted by ${handoff.submitted_by_name}` : 'Not submitted'} · {photos.length} photo{photos.length === 1 ? '' : 's'}
+            {handoff.lead_name ? `Led by ${handoff.lead_name} · ` : ''}
+            {handoff.submitted_at ? 'Handoff submitted' : 'Not submitted'} · {photos.length} photo{photos.length === 1 ? '' : 's'}
           </span>
         </span>
-        {handoff.rating ? <Stars value={handoff.rating} size="sm" /> : <span className="pill">Not rated</span>}
+        {rating ? <Stars value={rating.rating} size="sm" /> : handoff.rated_at ? <span className="pill pill-ok">Rated</span> : <span className="pill">Not rated</span>}
         <Icon name={open ? 'up' : 'down'} size={18} />
       </button>
       {open && (
@@ -276,12 +356,14 @@ function HistoryRow({ handoff, photos, tone }: { handoff: ShiftHandoff; photos: 
               <cite>{handoff.notes_by_name}</cite>
             </blockquote>
           )}
-          {handoff.rating && (
+          {rating ? (
             <p className="small">
-              <strong>{RATING_WORDS[handoff.rating]}</strong> · rated by {handoff.rated_by_name}{handoff.rated_at ? `, ${formatDateTime(handoff.rated_at)}` : ''}
-              {handoff.rating_comment && <><br />“{handoff.rating_comment}”</>}
+              <strong>{RATING_WORDS[rating.rating]}</strong> · rated by {rating.rated_by_name}, {formatDateTime(rating.rated_at)}
+              {rating.comment && <><br />“{rating.comment}”</>}
             </p>
-          )}
+          ) : handoff.rated_at ? (
+            <p className="small muted">Rated by {handoff.rated_by_name}, {formatDateTime(handoff.rated_at)}</p>
+          ) : null}
           {photos.length > 0 ? (
             <div className="photo-grid">{photos.map((p) => <PhotoThumb key={p.id} path={p.path} label={p.uploaded_by_name} />)}</div>
           ) : (
