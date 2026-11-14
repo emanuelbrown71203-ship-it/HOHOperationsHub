@@ -12,13 +12,15 @@ import {
   type HohLead,
   type Profile,
   type Role,
-  type ShiftDef,
   type WasteItem,
 } from '../lib/types';
 import Icon from '../components/Icon';
 import { useConfirm } from '../components/Confirm';
+import { PhotoPicker, PhotoThumb } from '../components/Photo';
+import { usePositions } from '../lib/usePositions';
+import { removeFiles, uploadFile } from '../lib/files';
 
-type Tab = 'store' | 'leads' | 'checklists' | 'waste' | 'equipment' | 'team';
+type Tab = 'store' | 'leads' | 'checklists' | 'positions' | 'waste' | 'equipment' | 'team';
 
 export default function Setup() {
   const { isDirector } = useApp();
@@ -27,7 +29,8 @@ export default function Setup() {
   const tabs: [Tab, string][] = [
     ['store', 'Store'],
     ['leads', 'HOH Leads'],
-    ['checklists', 'Checklists'],
+    ['checklists', 'Lead checklists'],
+    ['positions', 'Positions'],
     ['waste', 'Waste items'],
     ['equipment', 'Equipment'],
     ...(isDirector ? ([['team', 'Team']] as [Tab, string][]) : []),
@@ -50,6 +53,7 @@ export default function Setup() {
       {tab === 'store' && <StoreEditor />}
       {tab === 'leads' && <LeadsEditor />}
       {tab === 'checklists' && <ChecklistsEditor />}
+      {tab === 'positions' && <PositionsEditor />}
       {tab === 'waste' && <WasteItemsEditor />}
       {tab === 'equipment' && <EquipmentEditor />}
       {tab === 'team' && isDirector && <TeamEditor />}
@@ -210,79 +214,50 @@ function StoreEditor() {
         <SectionIntro title="Waste units">Units people can pick when logging waste.</SectionIntro>
         <ListEditor items={settings.waste_units} noun="unit" onChange={(waste_units) => save({ waste_units })} />
       </section>
-
-      <section className="card">
-        <SectionIntro title="Equipment actions">
-          The buttons for logging work on equipment, like "Filter change". Reporting an issue is always available.
-        </SectionIntro>
-        <ListEditor items={settings.equipment_actions} noun="action" onChange={(equipment_actions) => save({ equipment_actions })} />
-      </section>
     </div>
   );
 }
 
 function ShiftsEditor() {
-  const { settings, shift } = useApp();
+  const { settings, shift, shiftNames, toast } = useApp();
   const save = useSaveSettings();
-  const confirm = useConfirm();
-  const [name, setName] = useState('');
-  const [start, setStart] = useState('');
-  const sorted = (list: ShiftDef[]) => [...list].sort((a, b) => a.start.localeCompare(b.start));
 
-  async function update(list: ShiftDef[], ok?: string) {
-    await save({ shifts: sorted(list) }, ok);
+  async function rename(i: number, name: string) {
+    const old = settings.shifts[i].name;
+    if (shiftNames.some((n, j) => j !== i && n.toLowerCase() === name.toLowerCase())) return toast('Each shift needs a different name', 'error');
+    if (!(await save({ shifts: settings.shifts.map((x, j) => (j === i ? { ...x, name } : x)) }, `Renamed ${old} to ${name}`))) return;
+    // Keep lead checklists on the renamed shift.
+    await supabase.from('checklist_templates').update({ shift: name }).eq('shift', old);
   }
 
   return (
     <section className="card">
       <SectionIntro title="Shifts">
-        The app switches shifts automatically at each start time. Checklists, waste and equipment entries are tagged with the shift.
+        Your two shifts. The app switches from one to the other automatically at each start time.
       </SectionIntro>
       <ul className="edit-list shift-list">
         {settings.shifts.map((s, i) => (
           <li key={`${s.name}-${i}`}>
-            <span className={`shift-chip tone-${['sunrise', 'day', 'dusk', 'night'][Math.min(i, 3)]}`} aria-hidden="true" />
-            <InlineText label="Shift name" value={s.name} onSave={(v) => update(settings.shifts.map((x, j) => (j === i ? { ...x, name: v } : x)), 'Shift renamed')} />
+            <span className={`shift-chip tone-${i === 0 ? 'sunrise' : 'dusk'}`} aria-hidden="true" />
+            <InlineText label="Shift name" value={s.name} onSave={(v) => rename(i, v)} />
             <label className="time-field">
               <span>Starts</span>
               <input
                 type="time"
                 value={s.start}
-                onChange={(e) => e.target.value && update(settings.shifts.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)), `${s.name} now starts at ${formatClock(e.target.value)}`)}
+                onChange={(e) =>
+                  e.target.value &&
+                  save(
+                    { shifts: settings.shifts.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)).sort((x, y) => x.start.localeCompare(y.start)) },
+                    `${s.name} now starts at ${formatClock(e.target.value)}`,
+                  )
+                }
               />
             </label>
             {s.name === shift && <span className="pill pill-accent">Now</span>}
-            <button
-              className="icon-btn"
-              aria-label={`Remove ${s.name}`}
-              disabled={settings.shifts.length <= 1}
-              onClick={async () => {
-                if (await confirm({ title: `Remove the ${s.name} shift?`, body: 'Past entries keep their shift name. Checklists assigned to this shift will show as "Any shift" until you reassign them.', confirmLabel: 'Remove', danger: true })) {
-                  update(settings.shifts.filter((_, j) => j !== i), 'Shift removed');
-                }
-              }}
-            >
-              <Icon name="trash" size={18} />
-            </button>
           </li>
         ))}
       </ul>
-      <form
-        className="add-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!name.trim() || !start) return;
-          if (settings.shifts.some((s) => s.name.toLowerCase() === name.trim().toLowerCase())) return;
-          update([...settings.shifts, { name: name.trim(), start }], `Added ${name.trim()} shift`).then(() => {
-            setName('');
-            setStart('');
-          });
-        }}
-      >
-        <input placeholder="New shift name, e.g. Overnight" value={name} onChange={(e) => setName(e.target.value)} aria-label="New shift name" />
-        <input type="time" value={start} onChange={(e) => setStart(e.target.value)} aria-label="Start time" className="time-input" />
-        <button className="btn btn-primary" disabled={!name.trim() || !start}><Icon name="plus" size={18} /> Add</button>
-      </form>
     </section>
   );
 }
@@ -378,7 +353,7 @@ function ChecklistsEditor() {
   return (
     <div className="two-col setup-cols">
       <section className="card">
-        <SectionIntro title="Checklists">Pick one to edit its tasks. Use the arrows to change the order everyone sees.</SectionIntro>
+        <SectionIntro title="HOH Lead checklists">The few checklists the HOH Lead must complete in the app. Pick one to edit its tasks.</SectionIntro>
         <AddRow
           placeholder="New checklist name"
           onAdd={async (name) => {
@@ -546,93 +521,180 @@ function WasteItemsEditor() {
 /* Equipment                                                           */
 /* ------------------------------------------------------------------ */
 function EquipmentEditor() {
-  const { settings } = useApp();
   const { rows, run, move } = useTable<Equipment>('equipment');
   const confirm = useConfirm();
   const [category, setCategory] = useState('Fryer');
   const categories = [...new Set(['Fryer', 'Cooking', 'Holding', 'Prep', 'Refrigeration', 'Cleaning', 'Other', ...rows.map((r) => r.category)])];
   return (
     <section className="card">
-      <SectionIntro title="Equipment">
-        Give any item a recurring task (for example "Filter change every 12 hours"). The app shows when it's due and flags it when it's late.
-      </SectionIntro>
+      <SectionIntro title="Equipment">The list people pick from when they leave a kitchen note. Hide anything you no longer have.</SectionIntro>
       <datalist id="equip-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
       <AddRow placeholder="Equipment name" onAdd={(name) => run(supabase.from('equipment').insert({ name, category: category.trim() || 'Other', sort_order: nextOrder(rows) }), `Added ${name}`)}>
         <input list="equip-cats" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className="cat-input" placeholder="Category" />
       </AddRow>
-      <ul className="equip-edit-list">
+      <ul className="edit-list">
         {rows.map((eq, i) => (
-          <li key={eq.id} className={`equip-edit ${eq.active ? '' : 'inactive'}`}>
-            <div className="equip-edit-main">
-              <Reorder index={i} count={rows.length} onMove={move} />
-              <InlineText label="Equipment name" value={eq.name} onSave={(name) => run(supabase.from('equipment').update({ name }).eq('id', eq.id))} />
-              <input
-                list="equip-cats"
-                className="cat-input"
-                defaultValue={eq.category}
-                aria-label="Category"
-                onBlur={(e) => {
-                  const c = e.target.value.trim();
-                  if (c && c !== eq.category) run(supabase.from('equipment').update({ category: c }).eq('id', eq.id));
-                }}
-              />
-              <ActiveToggle active={eq.active} onChange={(active) => run(supabase.from('equipment').update({ active }).eq('id', eq.id))} />
-              <button
-                className="icon-btn"
-                aria-label={`Delete ${eq.name}`}
-                onClick={async () => {
-                  if (await confirm({ title: `Delete ${eq.name}?`, body: 'This deletes ALL of its log history too. To keep history, hide it instead.', confirmLabel: 'Delete', danger: true })) {
-                    run(supabase.from('equipment').delete().eq('id', eq.id));
-                  }
-                }}
-              >
-                <Icon name="trash" size={18} />
-              </button>
-            </div>
-            <div className="equip-track">
-              <Icon name="clock" size={16} />
-              <span>Recurring task</span>
-              <select
-                aria-label="Recurring task"
-                value={eq.track_action ?? ''}
-                onChange={(e) =>
-                  run(
-                    supabase
-                      .from('equipment')
-                      .update(e.target.value ? { track_action: e.target.value, track_hours: eq.track_hours ?? 24 } : { track_action: null, track_hours: null })
-                      .eq('id', eq.id),
-                    'Saved',
-                  )
+          <li key={eq.id} className={eq.active ? '' : 'inactive'}>
+            <Reorder index={i} count={rows.length} onMove={move} />
+            <InlineText label="Equipment name" value={eq.name} onSave={(name) => run(supabase.from('equipment').update({ name }).eq('id', eq.id))} />
+            <input
+              list="equip-cats"
+              className="cat-input"
+              defaultValue={eq.category}
+              aria-label="Category"
+              onBlur={(e) => {
+                const c = e.target.value.trim();
+                if (c && c !== eq.category) run(supabase.from('equipment').update({ category: c }).eq('id', eq.id));
+              }}
+            />
+            <ActiveToggle active={eq.active} onChange={(active) => run(supabase.from('equipment').update({ active }).eq('id', eq.id))} />
+            <button
+              className="icon-btn"
+              aria-label={`Delete ${eq.name}`}
+              onClick={async () => {
+                if (await confirm({ title: `Delete ${eq.name}?`, body: 'This deletes all of its notes too. To keep them, hide it instead.', confirmLabel: 'Delete', danger: true })) {
+                  run(supabase.from('equipment').delete().eq('id', eq.id));
                 }
-              >
-                <option value="">None</option>
-                {[...new Set([...settings.equipment_actions, ...(eq.track_action ? [eq.track_action] : [])])].map((a) => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
-              {eq.track_action && (
-                <label className="hours-field">
-                  every
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
-                    defaultValue={eq.track_hours ?? 24}
-                    aria-label="Hours between"
-                    onBlur={(e) => {
-                      const h = Number(e.target.value);
-                      if (h > 0 && h !== eq.track_hours) run(supabase.from('equipment').update({ track_hours: h }).eq('id', eq.id), 'Saved');
-                    }}
-                  />
-                  hours
-                </label>
-              )}
-            </div>
+              }}
+            >
+              <Icon name="trash" size={18} />
+            </button>
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Positions (attach the physical checklist)                           */
+/* ------------------------------------------------------------------ */
+function PositionsEditor() {
+  const { positions, filesFor, reload } = usePositions(true);
+  const { toast } = useApp();
+  const confirm = useConfirm();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const current = positions.find((p) => p.id === selected) ?? positions[0] ?? null;
+  const files = current ? filesFor(current.id) : [];
+
+  async function run(p: PromiseLike<{ error: unknown }>, ok?: string) {
+    const { error } = await p;
+    if (error) return toast(errorMessage(error), 'error'), false;
+    if (ok) toast(ok);
+    await reload();
+    return true;
+  }
+
+  async function move(index: number, dir: -1 | 1) {
+    const list = [...positions];
+    const j = index + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[index], list[j]] = [list[j], list[index]];
+    const results = await Promise.all(list.map((r, i) => supabase.from('positions').update({ sort_order: i + 1 }).eq('id', r.id)));
+    await run(Promise.resolve({ error: results.find((r) => r.error)?.error ?? null }));
+  }
+
+  async function attach(list: File[]) {
+    if (!current) return;
+    setUploading(true);
+    let added = 0;
+    for (const f of list) {
+      try {
+        const { path, contentType } = await uploadFile(`positions/${current.id}`, f);
+        const { error } = await supabase.from('position_files').insert({ position_id: current.id, path, file_name: f.name || 'Checklist', content_type: contentType });
+        if (error) throw error;
+        added++;
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      }
+    }
+    setUploading(false);
+    if (added) toast(`Attached ${added} file${added > 1 ? 's' : ''} to ${current.name}`);
+    reload();
+  }
+
+  return (
+    <div className="two-col setup-cols">
+      <section className="card">
+        <SectionIntro title="Positions">Each kitchen position and its printed checklist. Attach a photo or PDF of the paper checklist.</SectionIntro>
+        <AddRow
+          placeholder="New position, e.g. Breading"
+          onAdd={async (name) => {
+            const { data, error } = await supabase.from('positions').insert({ name, sort_order: positions.length + 1 }).select().single();
+            const ok = await run(Promise.resolve({ error }), `Added ${name}`);
+            if (ok && data) setSelected((data as { id: string }).id);
+            return ok;
+          }}
+        />
+        <ul className="pick-list">
+          {positions.map((p, i) => (
+            <li key={p.id} className="pick-row">
+              <button className={`pick ${current?.id === p.id ? 'on' : ''} ${p.active ? '' : 'inactive'}`} onClick={() => setSelected(p.id)}>
+                <span>{p.name}</span>
+                <span className="muted small">{filesFor(p.id).length || 'No'} file{filesFor(p.id).length === 1 ? '' : 's'}{p.active ? '' : ' · hidden'}</span>
+              </button>
+              <Reorder index={i} count={positions.length} onMove={move} />
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {current && (
+        <section className="card" key={current.id}>
+          <label className="field">
+            <span>Position name</span>
+            <InlineText className="big-input" label="Position name" value={current.name} onSave={(name) => run(supabase.from('positions').update({ name }).eq('id', current.id), 'Saved')} />
+          </label>
+          <label className="field">
+            <span>Notes for this position (optional)</span>
+            <textarea
+              rows={2}
+              defaultValue={current.description ?? ''}
+              placeholder="e.g. Ask the HOH Lead for the laminated copy if the printout is missing."
+              onBlur={(e) => {
+                const v = e.target.value.trim() || null;
+                if (v !== (current.description ?? null)) run(supabase.from('positions').update({ description: v }).eq('id', current.id), 'Saved');
+              }}
+            />
+          </label>
+          <div className="field">
+            <span>Checklist files</span>
+            <div className="photo-grid">
+              {files.map((f) => (
+                <PhotoThumb
+                  key={f.id}
+                  path={f.path}
+                  contentType={f.content_type}
+                  label={f.file_name}
+                  onDelete={async () => {
+                    if (!(await confirm({ title: `Remove ${f.file_name}?`, confirmLabel: 'Remove', danger: true }))) return;
+                    if (await run(supabase.from('position_files').delete().eq('id', f.id), 'File removed')) await removeFiles([f.path]);
+                  }}
+                />
+              ))}
+              <PhotoPicker onFiles={attach} busy={uploading} accept="image/*,application/pdf" className="photo-add">
+                Attach photo or PDF
+              </PhotoPicker>
+            </div>
+            <p className="muted small">Tip: lay the paper checklist flat in good light and take the photo straight on.</p>
+          </div>
+          <div className="row-between wrap">
+            <ActiveToggle active={current.active} onChange={(active) => run(supabase.from('positions').update({ active }).eq('id', current.id))} />
+            <button
+              className="btn btn-ghost btn-sm text-danger"
+              onClick={async () => {
+                if (!(await confirm({ title: `Delete ${current.name}?`, body: 'Its attached files are removed too.', confirmLabel: 'Delete position', danger: true }))) return;
+                const paths = files.map((f) => f.path);
+                if (await run(supabase.from('positions').delete().eq('id', current.id), 'Position deleted')) await removeFiles(paths);
+              }}
+            >
+              <Icon name="trash" size={16} /> Delete position
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
 

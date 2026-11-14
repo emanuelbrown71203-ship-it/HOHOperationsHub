@@ -76,8 +76,6 @@ export interface Equipment {
   id: string;
   name: string;
   category: string;
-  track_action: string | null;
-  track_hours: number | null;
   sort_order: number;
   active: boolean;
 }
@@ -99,6 +97,64 @@ export interface EquipmentLog {
   resolved_at: string | null;
   resolved_by_name: string | null;
   resolution_notes: string | null;
+  photo_path: string | null;
+}
+
+export interface WeeklyFocus {
+  week_start: string;
+  focus: string;
+  created_by_name: string;
+  updated_at: string;
+}
+
+export interface Shoutout {
+  id: string;
+  lead_id: string | null;
+  lead_name: string;
+  message: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+export interface ShiftHandoff {
+  id: string;
+  shift_date: string;
+  shift: string;
+  notes: string | null;
+  notes_by_name: string | null;
+  notes_at: string | null;
+  submitted_at: string | null;
+  submitted_by_name: string | null;
+  rating: number | null;
+  rating_comment: string | null;
+  rated_by_name: string | null;
+  rated_at: string | null;
+}
+
+export interface HandoffPhoto {
+  id: string;
+  handoff_id: string;
+  path: string;
+  user_id: string | null;
+  uploaded_by_name: string;
+  created_at: string;
+}
+
+export interface Position {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  active: boolean;
+}
+
+export interface PositionFile {
+  id: string;
+  position_id: string;
+  path: string;
+  file_name: string;
+  content_type: string | null;
+  created_at: string;
 }
 
 export interface ShiftDef {
@@ -112,19 +168,16 @@ export interface AppSettings {
   shifts: ShiftDef[];
   waste_reasons: string[];
   waste_units: string[];
-  equipment_actions: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   store_name: 'Our Store',
   shifts: [
-    { name: 'Opening', start: '05:00' },
-    { name: 'Mid', start: '10:30' },
-    { name: 'Closing', start: '16:00' },
+    { name: 'AM', start: '05:00' },
+    { name: 'PM', start: '14:00' },
   ],
   waste_reasons: ['Overcooked / burnt', 'Hold time expired', 'Dropped / contaminated', 'Overproduction', 'Quality issue', 'Customer return', 'Other'],
   waste_units: ['each', 'lbs', 'orders', 'pans', 'bags', 'trays', 'cases'],
-  equipment_actions: ['Filter change', 'Oil change', 'Cleaning', 'Maintenance'],
 };
 
 const LEGACY_LOG_LABELS: Record<string, string> = {
@@ -135,6 +188,6 @@ const LEGACY_LOG_LABELS: Record<string, string> = {
 };
 
 export function logTypeLabel(type: string): string {
-  if (type === 'issue') return 'Issue reported';
+  if (type === 'issue') return 'Note';
   return LEGACY_LOG_LABELS[type] ?? type;
 }

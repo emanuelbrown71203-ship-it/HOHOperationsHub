@@ -11,7 +11,7 @@ type Row = Record<string, any>;
 type Db = Record<string, Row[]>;
 type Result = { data: any; error: { message: string; code?: string } | null };
 
-const DB_KEY = 'hoh.demo.db.v2';
+const DB_KEY = 'hoh.demo.db.v3';
 const SESSION_KEY = 'hoh.demo.session.v1';
 
 export const DEMO_ACCOUNTS = [
@@ -29,10 +29,44 @@ function minutesAgo(m: number) {
   return new Date(Date.now() - m * 60000).toISOString();
 }
 
+/* Sample pictures for the demo (drawn, so nothing is downloaded). */
+function svgUrl(svg: string) {
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+function sampleSetupPhoto(title: string, hue: number) {
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <rect width="800" height="600" fill="hsl(${hue},18%,86%)"/>
+  <rect y="360" width="800" height="240" fill="hsl(${hue},10%,70%)"/>
+  <rect x="60" y="250" width="680" height="120" rx="10" fill="#cfd6de" stroke="#9aa5b1" stroke-width="4"/>
+  ${[0, 1, 2, 3].map((i) => `<rect x="${90 + i * 160}" y="200" width="130" height="70" rx="8" fill="hsl(${hue + i * 40},60%,62%)" stroke="#5a6680" stroke-width="3"/>`).join('')}
+  <rect x="90" y="400" width="220" height="140" rx="8" fill="#e9ecef" stroke="#9aa5b1" stroke-width="4"/>
+  <rect x="490" y="400" width="220" height="140" rx="8" fill="#e9ecef" stroke="#9aa5b1" stroke-width="4"/>
+  <rect x="0" y="0" width="800" height="70" fill="rgba(23,32,51,.75)"/>
+  <text x="24" y="46" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#fff">${title}</text>
+  <text x="776" y="46" text-anchor="end" font-family="Arial, sans-serif" font-size="22" fill="#fff">Sample photo</text>
+</svg>`);
+}
+function sampleChecklist(position: string, tasks: string[]) {
+  return svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="850" height="1100" viewBox="0 0 850 1100">
+  <rect width="850" height="1100" fill="#fffdf7"/>
+  <rect x="50" y="50" width="750" height="110" fill="#e63946"/>
+  <text x="80" y="118" font-family="Arial, sans-serif" font-size="44" font-weight="800" fill="#fff">${position.toUpperCase()}</text>
+  <text x="770" y="118" text-anchor="end" font-family="Arial, sans-serif" font-size="24" fill="#fff">Position checklist</text>
+  ${tasks.map((t, i) => `<rect x="80" y="${215 + i * 78}" width="36" height="36" rx="4" fill="none" stroke="#172033" stroke-width="3"/>
+  <text x="140" y="${243 + i * 78}" font-family="Arial, sans-serif" font-size="28" fill="#172033">${t}</text>
+  <line x1="80" y1="${275 + i * 78}" x2="770" y2="${275 + i * 78}" stroke="#d6dbe3" stroke-width="2"/>`).join('')}
+  <text x="80" y="1040" font-family="Arial, sans-serif" font-size="22" fill="#5a6680">Sample of a scanned paper checklist</text>
+</svg>`);
+}
+
+/** Files the demo "stores": seeded drawings plus anything uploaded this visit. */
+const demoFiles = new Map<string, string>();
+
 function seed(): Db {
   const today = localDate();
   const yesterday = addDays(today, -1);
   const now = new Date().toISOString();
+  const pmStarted = new Date().getHours() >= 14;
 
   const profiles: Row[] = [
     { id: 'u-kitchen', email: 'kitchen@demo', full_name: 'Store Kitchen', role: 'kitchen', created_at: minutesAgo(60 * 24 * 30) },
@@ -46,32 +80,26 @@ function seed(): Db {
   }));
 
   const templateDefs: [string, string, string[]][] = [
-    ['Opening', 'Opening', [
+    ['AM Opening', 'AM', [
       'Turn on fryers and verify oil level', 'Check walk-in cooler and freezer temps', 'Calibrate thermometers',
-      'Set up breading table', 'Verify thawed product for today', 'Set up and test sanitizer buckets',
-      'Stock hand sinks (soap and towels)', 'Stock line with packaging and supplies',
+      'Verify thawed product for today', 'Set up and test sanitizer buckets', 'Stock line with packaging and supplies',
     ]],
-    ['Mid-Shift', 'Mid', [
-      'Filter fryers', 'Restock breading station', 'Change sanitizer buckets',
-      'Check hold times and discard expired product', 'Sweep and spot-mop kitchen floor', 'Empty trash',
+    ['Shift Swap', 'AM', [
+      'Filter fryers', 'Restock breading station', 'Change sanitizer buckets', 'Check hold times and discard expired product',
+      'Walk every station with the PM HOH Lead', 'Upload shift swap photos',
     ]],
-    ['Closing', 'Closing', [
-      'Filter and cover fryers', 'Break down and clean breading table', 'Clean grill', 'Wrap, label and date all product',
-      'Run dishes and clean dish area', 'Clean and sanitize all prep surfaces', 'Final walk-in temp check',
-      'Sweep and mop floors', 'Take out trash and recycling',
+    ['PM Close', 'PM', [
+      'Filter and cover fryers', 'Break down and clean breading table', 'Wrap, label and date all product',
+      'Clean and sanitize all prep surfaces', 'Final walk-in temp check', 'Sweep and mop floors', 'Upload close-out photos',
     ]],
-    ['Weekly Deep Clean', 'Any', [
-      'Clean hood filters', 'Delime dish machine', 'Clean walk-in shelving', 'Clean behind and under equipment',
-    ]],
+    ['Weekly Deep Clean', 'Any', ['Clean hood filters', 'Delime dish machine', 'Clean walk-in shelving', 'Clean behind and under equipment']],
   ];
   const templates: Row[] = [];
   const items: Row[] = [];
   templateDefs.forEach(([name, shift, labels], ti) => {
     const id = `tpl-${ti + 1}`;
     templates.push({ id, name, shift, frequency: shift === 'Any' ? 'weekly' : 'daily', sort_order: ti + 1, active: true, created_at: now });
-    labels.forEach((label, li) =>
-      items.push({ id: `${id}-item-${li + 1}`, template_id: id, label, sort_order: li + 1, active: true, created_at: now }),
-    );
+    labels.forEach((label, li) => items.push({ id: `${id}-item-${li + 1}`, template_id: id, label, sort_order: li + 1, active: true, created_at: now }));
   });
 
   const checks: Row[] = [];
@@ -80,13 +108,9 @@ function seed(): Db {
       id: uid(), template_id: `tpl-${tpl}`, item_id: `tpl-${tpl}-item-${item}`, check_date: date,
       checked_at: minutesAgo(mins), user_id: leadId ? 'u-kitchen' : 'u-member', lead_id: leadId, performed_by_name: by,
     });
-  // Today: Opening done except one, Mid-Shift started.
-  for (let i = 1; i <= 7; i++) check(1, i, today, 'Jordan', 'lead-1', 420 - i * 6);
-  check(2, 1, today, 'Taylor', 'lead-2', 150);
-  check(2, 2, today, 'Sam Lee', null, 120);
-  // Yesterday: everything done.
-  for (const [tpl, n] of [[1, 8], [2, 6], [3, 9]] as const) for (let i = 1; i <= n; i++) check(tpl, i, yesterday, 'Morgan', 'lead-3', 60 * 20 + i);
-  // This week's deep clean: one task done so far.
+  for (let i = 1; i <= 5; i++) check(1, i, today, 'Jordan', 'lead-1', 400 - i * 6);
+  check(2, 1, today, 'Jordan', 'lead-1', 120);
+  for (const [tpl, n] of [[1, 6], [2, 6], [3, 7]] as const) for (let i = 1; i <= n; i++) check(tpl, i, yesterday, tpl === 3 ? 'Avery' : 'Morgan', tpl === 3 ? 'lead-4' : 'lead-3', 60 * 20 + i);
   check(4, 1, weekStart(today), 'Avery', 'lead-4', 60 * 30);
 
   const wasteItems: Row[] = [
@@ -98,49 +122,77 @@ function seed(): Db {
   const waste: Row[] = [];
   const w = (date: string, mins: number, shift: string, item: string, qty: number, unit: string, reason: string, by: string, lead: string | null, notes: string | null = null) =>
     waste.push({ id: uid(), logged_at: minutesAgo(mins), log_date: date, shift, item_name: item, quantity: qty, unit, reason, notes, user_id: lead ? 'u-kitchen' : 'u-member', lead_id: lead, performed_by_name: by });
-  w(today, 380, 'Opening', 'Biscuits', 6, 'each', 'Overproduction', 'Jordan', 'lead-1');
-  w(today, 330, 'Opening', 'Hash Browns', 3, 'orders', 'Hold time expired', 'Jordan', 'lead-1');
-  w(today, 200, 'Mid', 'Nuggets', 16, 'each', 'Hold time expired', 'Taylor', 'lead-2');
-  w(today, 170, 'Mid', 'Filets', 2, 'each', 'Dropped / contaminated', 'Sam Lee', null, 'Dropped during rush');
-  w(today, 95, 'Mid', 'Waffle Fries', 5, 'orders', 'Hold time expired', 'Taylor', 'lead-2');
-  w(yesterday, 60 * 26, 'Mid', 'Spicy Filets', 4, 'each', 'Overcooked / burnt', 'Morgan', 'lead-3');
-  w(yesterday, 60 * 22, 'Closing', 'Mac & Cheese', 1, 'pans', 'Overproduction', 'Avery', 'lead-4');
-  w(addDays(today, -3), 60 * 75, 'Closing', 'Nuggets', 24, 'each', 'Overproduction', 'Avery', 'lead-4');
+  w(today, 380, 'AM', 'Biscuits', 6, 'each', 'Overproduction', 'Jordan', 'lead-1');
+  w(today, 200, 'AM', 'Nuggets', 16, 'each', 'Hold time expired', 'Jordan', 'lead-1');
+  w(today, 170, 'AM', 'Filets', 2, 'each', 'Dropped / contaminated', 'Sam Lee', null, 'Dropped during rush');
+  w(yesterday, 60 * 22, 'PM', 'Mac & Cheese', 1, 'pans', 'Overproduction', 'Avery', 'lead-4');
 
   const equipment: Row[] = [
-    ['Fryer 1', 'Fryer'], ['Fryer 2', 'Fryer'], ['Fryer 3', 'Fryer'], ['Fryer 4', 'Fryer'], ['Grill', 'Cooking'],
-    ['Holding Cabinet', 'Holding'], ['Breading Table', 'Prep'], ['Walk-in Cooler', 'Refrigeration'],
+    ['Kitchen (general)', 'Other'], ['Fryer 1', 'Fryer'], ['Fryer 2', 'Fryer'], ['Fryer 3', 'Fryer'], ['Fryer 4', 'Fryer'],
+    ['Grill', 'Cooking'], ['Holding Cabinet', 'Holding'], ['Breading Table', 'Prep'], ['Walk-in Cooler', 'Refrigeration'],
     ['Walk-in Freezer', 'Refrigeration'], ['Dish Machine', 'Cleaning'], ['Ice Machine', 'Other'],
-  ].map(([name, category], i) => ({
-    id: `eq-${i + 1}`, name, category, sort_order: i + 1, active: true, created_at: now,
-    track_action: category === 'Fryer' ? 'Filter change' : name === 'Ice Machine' ? 'Cleaning' : null,
-    track_hours: category === 'Fryer' ? 12 : name === 'Ice Machine' ? 168 : null,
-  }));
+  ].map(([name, category], i) => ({ id: `eq-${i}`, name, category, sort_order: i, active: true, created_at: now }));
 
   const logs: Row[] = [];
-  const l = (eq: number, type: string, mins: number, shift: string, by: string, lead: string | null, notes: string | null = null, extra: Row = {}) =>
+  const note = (eq: number, mins: number, shift: string, by: string, lead: string | null, text: string, extra: Row = {}) =>
     logs.push({
-      id: uid(), equipment_id: `eq-${eq}`, log_type: type, notes, status: type === 'issue' ? 'open' : 'done',
+      id: uid(), equipment_id: `eq-${eq}`, log_type: 'issue', notes: text, status: 'open', photo_path: null,
       logged_at: minutesAgo(mins), log_date: localDate(new Date(Date.now() - mins * 60000)), shift,
       user_id: lead ? 'u-kitchen' : 'u-member', lead_id: lead, performed_by_name: by,
       resolved_at: null, resolved_by_name: null, resolution_notes: null, ...extra,
     });
-  l(1, 'Filter change', 140, 'Mid', 'Taylor', 'lead-2');
-  l(2, 'Filter change', 135, 'Mid', 'Taylor', 'lead-2');
-  l(3, 'Filter change', 60 * 15, 'Closing', 'Avery', 'lead-4');
-  l(4, 'Filter change', 60 * 10.5, 'Closing', 'Avery', 'lead-4');
-  l(11, 'Cleaning', 60 * 24 * 3, 'Closing', 'Avery', 'lead-4');
-  l(3, 'issue', 110, 'Mid', 'Sam Lee', null, 'Oil is slow to come back up to temp after a drop');
-  l(10, 'Cleaning', 60 * 16, 'Closing', 'Avery', 'lead-4', 'Deep clean and delime');
-  l(9, 'issue', 60 * 30, 'Mid', 'Morgan', 'lead-3', 'Door gasket torn on the left side', {
+  demoFiles.set('demo/fryer3.svg', sampleSetupPhoto('Fryer 3 temperature display', 10));
+  note(3, 110, 'AM', 'Sam Lee', null, "Fryer 3 is slow to come back up to temp after a drop. Tech is scheduled for Tuesday.", { photo_path: 'demo/fryer3.svg' });
+  note(0, 60 * 18, 'PM', 'Avery', 'lead-4', 'Hand sink by the breading table drains slowly.');
+  note(11, 60 * 26, 'PM', 'Morgan', 'lead-3', 'Ice is coming out cloudy. Filter may need changing.');
+  note(9, 60 * 30, 'AM', 'Morgan', 'lead-3', 'Door gasket torn on the left side.', {
     status: 'resolved', resolved_at: minutesAgo(60 * 4), resolved_by_name: 'Alex Rivera', resolution_notes: 'Replaced gasket',
   });
-  l(1, 'Oil change', 60 * 50, 'Closing', 'Avery', 'lead-4');
+
+  // Shift handoffs: yesterday both shifts, and today's AM once the PM shift has started.
+  const handoffs: Row[] = [];
+  const photos: Row[] = [];
+  const handoff = (date: string, shift: string, by: string, mins: number, notes: string | null, pics: string[], rating?: [number, string | null, string]) => {
+    const id = uid();
+    handoffs.push({
+      id, shift_date: date, shift, notes, notes_by_name: notes ? by : null, notes_at: notes ? minutesAgo(mins) : null,
+      submitted_at: minutesAgo(mins), submitted_by_name: by,
+      rating: rating?.[0] ?? null, rating_comment: rating?.[1] ?? null, rated_by_name: rating?.[2] ?? null, rated_at: rating ? minutesAgo(mins - 20) : null,
+      created_at: minutesAgo(mins),
+    });
+    pics.forEach((title, i) => {
+      const path = `demo/${date}-${shift}-${i}.svg`;
+      demoFiles.set(path, sampleSetupPhoto(title, 200 + i * 35));
+      photos.push({ id: uid(), handoff_id: id, path, user_id: 'u-kitchen', uploaded_by_name: by, created_at: minutesAgo(mins + 2) });
+    });
+  };
+  handoff(yesterday, 'AM', 'Morgan', 60 * 26, 'Breading station fully stocked. We ran low on spicy breading, more is thawing.', ['Breading table', 'Fry station'], [4, 'Clean line, just restock the sauces next time.', 'Avery']);
+  handoff(yesterday, 'PM', 'Avery', 60 * 16, 'Closed clean. Fryer 3 still slow, left a kitchen note.', ['Breading table after close', 'Fryers covered', 'Walk-in'], pmStarted ? [5, 'Best close all week. Thank you!', 'Jordan'] : undefined);
+  if (pmStarted) handoff(today, 'AM', 'Jordan', 25, 'Busy lunch. Prep is caught up, filets thawing for dinner.', ['Shift swap: breading', 'Shift swap: fries']);
+
+  const positions: Row[] = ['Breading', 'Fries', 'Machines', 'Prep', 'Grill', 'Dish'].map((name, i) => ({
+    id: `pos-${i + 1}`, name, description: null, sort_order: i + 1, active: true, created_at: now,
+  }));
+  positions[0].description = 'Laminated copy hangs above the breading table.';
+  const positionFiles: Row[] = [];
+  const attach = (pos: number, name: string, tasks: string[]) => {
+    const path = `demo/position-${pos}.svg`;
+    demoFiles.set(path, sampleChecklist(name, tasks));
+    positionFiles.push({ id: uid(), position_id: `pos-${pos}`, path, file_name: `${name} checklist`, content_type: 'image/svg+xml', created_at: now });
+  };
+  attach(1, 'Breading', ['Sanitize table and bins', 'Sift breading every 30 min', 'Check filet temps', 'Rotate product FIFO', 'Change gloves between tasks', 'Wipe down at swap']);
+  attach(2, 'Fries', ['Check oil level and color', 'Salt station stocked', 'Hold time timers on', 'Restock boxes and bags', 'Wipe the fry dump', 'Filter at swap']);
 
   return {
     profiles, hoh_leads: leads, checklist_templates: templates, checklist_items: items, checklist_checks: checks,
     waste_items: wasteItems, waste_entries: waste, equipment, equipment_logs: logs,
     app_settings: [{ id: 1, ...DEFAULT_SETTINGS, store_name: 'Demo Store #0000', updated_at: now }],
+    weekly_focus: [{ week_start: weekStart(today), focus: 'Hold times! Every pan gets a timer, every time. Let’s hit zero expired product this week.', created_by_name: 'Alex Rivera', updated_at: minutesAgo(60 * 30) }],
+    shoutouts: [
+      { id: uid(), lead_id: 'lead-4', lead_name: 'Avery', message: 'Ran a spotless PM close last night. Every station was stocked and ready for AM.', created_by_name: 'Alex Rivera', created_at: minutesAgo(60 * 9) },
+      { id: uid(), lead_id: 'lead-1', lead_name: 'Jordan', message: 'Kept the line calm during Saturday’s catering rush.', created_by_name: 'Alex Rivera', created_at: minutesAgo(60 * 24 * 4) },
+    ],
+    shift_handoffs: handoffs, handoff_photos: photos, positions, position_files: positionFiles,
   };
 }
 
@@ -169,6 +221,7 @@ const persist = () => save(DB_KEY, db);
 
 /** Runs only in demo builds, so the real app never touches demo storage. */
 function init() {
+  seed(); // registers the sample pictures
   // Re-seed each new day so "today" always has sample activity.
   const stored = load<Db>(DB_KEY);
   if (stored && load<string>(DB_KEY + '.day') === localDate()) {
@@ -229,14 +282,16 @@ function actorName(leadId: string | null): string | Result {
   return p.full_name || 'Unknown';
 }
 
-const CONFIG_TABLES = ['hoh_leads', 'checklist_templates', 'checklist_items', 'waste_items', 'equipment'];
+const CONFIG_TABLES = ['hoh_leads', 'checklist_templates', 'checklist_items', 'waste_items', 'equipment', 'weekly_focus', 'shoutouts', 'positions', 'position_files'];
+const CREATED_BY_TABLES = ['weekly_focus', 'shoutouts'];
 const LOG_TABLES = ['checklist_checks', 'waste_entries', 'equipment_logs'];
 const DEFAULTS: Record<string, Row> = {
   hoh_leads: { active: true, sort_order: 0 },
   checklist_templates: { shift: 'Any', frequency: 'daily', active: true, sort_order: 0 },
   checklist_items: { active: true, sort_order: 0 },
   waste_items: { default_unit: 'each', active: true, sort_order: 0 },
-  equipment: { category: 'Other', track_action: null, track_hours: null, active: true, sort_order: 0 },
+  equipment: { category: 'Other', active: true, sort_order: 0 },
+  positions: { description: null, active: true, sort_order: 0 },
 };
 
 /* ------------------------------------------------------------------ */
@@ -321,6 +376,7 @@ class Query implements PromiseLike<Result> {
             }
           }
           if (t === 'waste_entries') row.logged_at = new Date().toISOString();
+          if (CREATED_BY_TABLES.includes(t)) row.created_by_name = me()?.full_name || 'Unknown';
           if (t === 'equipment_logs') {
             Object.assign(row, {
               logged_at: new Date().toISOString(), status: row.log_type === 'issue' ? 'open' : 'done',
@@ -329,7 +385,7 @@ class Query implements PromiseLike<Result> {
           }
           created.push(row);
         }
-        db[t].push(...created);
+        db[t] = [...(db[t] ?? []), ...created];
         persist();
         emit(t);
         return this.returning ? this.shape(created) : { data: null, error: null };
@@ -352,6 +408,7 @@ class Query implements PromiseLike<Result> {
         }
         const patch = { ...this.payload };
         if (LOG_TABLES.includes(t)) { delete patch.user_id; delete patch.lead_id; delete patch.performed_by_name; }
+        if (CREATED_BY_TABLES.includes(t)) patch.created_by_name = me()?.full_name || 'Unknown';
         const changed = targets.filter((r) => !LOG_TABLES.includes(t) || r.user_id === session!.user.id || isManager());
         changed.forEach((r) => Object.assign(r, patch));
         persist();
@@ -362,7 +419,8 @@ class Query implements PromiseLike<Result> {
       // delete
       let removable = targets;
       if (CONFIG_TABLES.includes(t)) removable = isManager() ? targets : [];
-      else if (LOG_TABLES.includes(t)) removable = targets.filter((r) => r.user_id === session!.user.id || isManager());
+      else if (LOG_TABLES.includes(t) || t === 'handoff_photos') removable = targets.filter((r) => r.user_id === session!.user.id || isManager());
+      else if (t === 'shift_handoffs' || t === 'app_settings') removable = [];
       else if (t === 'profiles') removable = [];
       const ids = new Set(removable.map((r) => r.id));
       db[t] = db[t].filter((r) => !ids.has(r.id));
@@ -373,6 +431,7 @@ class Query implements PromiseLike<Result> {
       }
       if (t === 'checklist_items') db.checklist_checks = db.checklist_checks.filter((r) => !ids.has(r.item_id));
       if (t === 'equipment') db.equipment_logs = db.equipment_logs.filter((r) => !ids.has(r.equipment_id));
+      if (t === 'positions') db.position_files = db.position_files.filter((r) => !ids.has(r.position_id));
       if (t === 'hoh_leads') for (const lt of LOG_TABLES) db[lt].forEach((r) => ids.has(r.lead_id) && (r.lead_id = null));
       persist();
       emit(t);
@@ -394,9 +453,31 @@ export function createDemoClient() {
 
     rpc: async (fn: string, args: Row): Promise<Result> => {
       await new Promise((r) => setTimeout(r, 60));
-      if (fn !== 'resolve_equipment_issue') return fail(`Unknown function ${fn}`);
       const name = actorName(args.p_lead_id ?? null);
       if (typeof name !== 'string') return name;
+      if (fn === 'save_handoff' || fn === 'rate_handoff' || fn === 'add_handoff_photo') {
+        let h = db.shift_handoffs.find((x) => x.shift_date === args.p_date && x.shift === args.p_shift);
+        if (!h) {
+          h = { id: uid(), shift_date: args.p_date, shift: args.p_shift, notes: null, notes_by_name: null, notes_at: null, submitted_at: null, submitted_by_name: null, rating: null, rating_comment: null, rated_by_name: null, rated_at: null, created_at: new Date().toISOString() };
+          db.shift_handoffs.push(h);
+        }
+        const nowIso = new Date().toISOString();
+        if (fn === 'save_handoff') {
+          const notes = (args.p_notes ?? '').trim() || null;
+          Object.assign(h, { notes, notes_by_name: notes ? name : null, notes_at: notes ? nowIso : null });
+          if (args.p_submit) Object.assign(h, { submitted_at: nowIso, submitted_by_name: name });
+        } else if (fn === 'rate_handoff') {
+          if (!(args.p_rating >= 1 && args.p_rating <= 5)) return fail('Choose 1 to 5 stars');
+          Object.assign(h, { rating: args.p_rating, rating_comment: (args.p_comment ?? '').trim() || null, rated_by_name: name, rated_at: nowIso });
+        } else {
+          db.handoff_photos.push({ id: uid(), handoff_id: h.id, path: args.p_path, user_id: session?.user.id, uploaded_by_name: name, created_at: nowIso });
+          emit('handoff_photos');
+        }
+        persist();
+        emit('shift_handoffs');
+        return { data: h.id, error: null };
+      }
+      if (fn !== 'resolve_equipment_issue') return fail(`Unknown function ${fn}`);
       const log = db.equipment_logs.find((l) => l.id === args.p_log_id && l.status === 'open');
       if (!log) return fail('Issue not found or already resolved');
       Object.assign(log, {
@@ -406,6 +487,23 @@ export function createDemoClient() {
       persist();
       emit('equipment_logs');
       return { data: null, error: null };
+    },
+
+    storage: {
+      from: () => ({
+        upload: async (path: string, file: Blob) => {
+          demoFiles.set(path, URL.createObjectURL(file)); // kept for this visit only
+          return { data: { path }, error: null };
+        },
+        createSignedUrl: async (path: string) => ({
+          data: { signedUrl: demoFiles.get(path) ?? svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#e1e7f0"/><text x="200" y="155" text-anchor="middle" font-family="Arial" font-size="20" fill="#5a6680">Photo (demo: reload clears uploads)</text></svg>`) },
+          error: null,
+        }),
+        remove: async (paths: string[]) => {
+          paths.forEach((p) => demoFiles.delete(p));
+          return { data: null, error: null };
+        },
+      }),
     },
 
     channel: () => {
