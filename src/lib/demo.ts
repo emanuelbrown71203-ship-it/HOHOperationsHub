@@ -637,6 +637,15 @@ export function createDemoClient() {
       return { data: null, error: null };
     },
 
+    functions: {
+      invoke: async (name: string) => {
+        await new Promise((r) => setTimeout(r, 200));
+        if (name !== 'set-password') return { data: null, error: { message: `Unknown function ${name}` } };
+        if (me()?.role !== 'director') return { data: null, error: { message: 'Only directors can set passwords for other people.' } };
+        return { data: { ok: true }, error: null }; // the demo has no real passwords
+      },
+    },
+
     storage: {
       from: () => ({
         upload: async (path: string, file: Blob) => {

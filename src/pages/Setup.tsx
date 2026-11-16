@@ -17,6 +17,7 @@ import {
   type WasteItem,
 } from '../lib/types';
 import Icon from '../components/Icon';
+import Modal from '../components/Modal';
 import { useConfirm } from '../components/Confirm';
 import { PhotoPicker, PhotoThumb } from '../components/Photo';
 import { usePositions } from '../lib/usePositions';
@@ -789,11 +790,13 @@ function TeamEditor() {
   }
 
   const pending = people.filter((p) => p.role === 'pending').length;
+  const [settingPassword, setSettingPassword] = useState<Profile | null>(null);
 
   return (
     <section className="card">
       <SectionIntro title="Team accounts">
         New sign-ups wait here until you give them a role. Use "Shared Kitchen Device" for the store tablet's login. Set someone to "No access" to remove their access.
+        If someone forgets their password, use "Set password" to give them a temporary one.
       </SectionIntro>
       {pending > 0 && <div className="banner banner-warn"><Icon name="alert" /> {pending} {pending === 1 ? 'person is' : 'people are'} waiting for approval.</div>}
       <ul className="edit-list">
@@ -814,9 +817,85 @@ function TeamEditor() {
                 <option key={r} value={r}>{ROLE_LABELS[r]}</option>
               ))}
             </select>
+            {p.id !== me?.id && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setSettingPassword(p)}>
+                <Icon name="key" size={16} /> Set password
+              </button>
+            )}
           </li>
         ))}
       </ul>
+      {settingPassword && <SetPasswordModal person={settingPassword} onClose={() => setSettingPassword(null)} />}
     </section>
+  );
+}
+
+/** Easy to read aloud or type: no look-alike characters (0/O, 1/l/I). */
+function suggestPassword() {
+  const words = ['Biscuit', 'Pickle', 'Waffle', 'Nugget', 'Lemon', 'Sunny', 'Maple', 'Honey', 'Pepper', 'Kale'];
+  const n = new Uint32Array(2);
+  crypto.getRandomValues(n);
+  return `${words[n[0] % words.length]}-${2000 + (n[1] % 7999)}`;
+}
+
+function SetPasswordModal({ person, onClose }: { person: Profile; onClose: () => void }) {
+  const { toast } = useApp();
+  const [password, setPassword] = useState(suggestPassword);
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function save() {
+    if (password.length < 6) return toast('Use at least 6 characters', 'error');
+    setSaving(true);
+    const { error } = await supabase.functions.invoke('set-password', { body: { userId: person.id, password } });
+    setSaving(false);
+    if (error) {
+      let message = errorMessage(error);
+      try {
+        const ctx = (error as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        /* keep the generic message */
+      }
+      return toast(message, 'error');
+    }
+    setDone(true);
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(password);
+      toast('Password copied');
+    } catch {
+      toast('Copy it from the box above', 'error');
+    }
+  }
+
+  return (
+    <Modal title={`Set a password for ${person.full_name || 'this person'}`} onClose={onClose}>
+      {done ? (
+        <>
+          <div className="done-banner"><Icon name="done" size={18} /> Password set. Give it to {person.full_name || 'them'} in person.</div>
+          <div className="temp-password">
+            <code>{password}</code>
+            <button className="btn btn-ghost btn-sm" onClick={copy}>Copy</button>
+          </div>
+          <p className="muted small">They sign in with their email and this password, then can change it in Account.</p>
+          <button className="btn btn-primary btn-block" onClick={onClose}>Done</button>
+        </>
+      ) : (
+        <>
+          <p className="muted">Use this when someone forgets their password. Their old password stops working right away.</p>
+          <label className="field">
+            <span>Temporary password</span>
+            <div className="row-gap">
+              <input value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" spellCheck={false} aria-label="Temporary password" />
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPassword(suggestPassword())}>New one</button>
+            </div>
+          </label>
+          <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Set password'}</button>
+        </>
+      )}
+    </Modal>
   );
 }
