@@ -64,6 +64,9 @@ The Supabase URL and publishable key are built in (they're meant to be public; r
 
 ## Hosting
 
+The live app: **https://hoh-operations-hub.vercel.app** (Vercel project `hoh-operations-hub`, built from this repository).
+
+
 `npm run build` produces a static site in `dist/` that works on any static host (Vercel, Netlify, Cloudflare Pages, GitHub Pages). It uses hash routing (`/#/waste`), so no server rewrites are needed.
 
 ## Database
@@ -77,3 +80,6 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0005_shifts_handoffs_notes.sql`: store settings, AM/PM shifts, focus of the week, shoutouts, shift handoffs with photos, position checklists, file storage
 - `0006_lead_scores.sql`: shift ratings credited to HOH Leads, score visibility, linked lead accounts, score views
 - `0007_only_directors_move_rated_shifts.sql`: only directors can move a rated shift to a different lead
+- `0008_drop_old_rating_columns.sql`: removes two unused rating columns from `shift_handoffs` (run once in the Supabase SQL Editor)
+
+Edge function: `supabase/functions/set-password` lets directors set a temporary password for a team member (Setup → Team).
