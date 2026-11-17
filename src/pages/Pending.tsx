@@ -1,8 +1,11 @@
 import iconUrl from '../assets/icon.svg';
 import { useApp } from '../lib/app';
+import { isPlaceholderEmail } from '../lib/passkeys';
+import PasskeyNudge from '../components/PasskeyNudge';
 
 export default function Pending() {
   const { profile, refreshProfile, signOut, session } = useApp();
+  const email = session?.user.email;
   return (
     <div className="auth-screen">
       <div className="auth-card">
@@ -13,8 +16,9 @@ export default function Pending() {
             <h1>Waiting for approval</h1>
           </div>
         </div>
+        <PasskeyNudge />
         <p>
-          Thanks{profile?.full_name ? `, ${profile.full_name}` : ''}! Your account ({session?.user.email}) has been created.
+          Thanks{profile?.full_name ? `, ${profile.full_name}` : ''}! Your account{email && !isPlaceholderEmail(email) ? ` (${email})` : ''} has been created.
           A director needs to approve it in <strong>Setup → Team</strong> before you can use the app.
         </p>
         <button className="btn btn-primary btn-block" onClick={() => refreshProfile()}>

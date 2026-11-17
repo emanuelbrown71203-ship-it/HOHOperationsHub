@@ -7,6 +7,7 @@ import LeadPicker from './LeadPicker';
 import Icon, { type IconName } from './Icon';
 import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
+import PasskeyNudge from './PasskeyNudge';
 
 type NavItem = { to: string; label: string; icon: IconName; section: string; managerOnly?: boolean; scoresOnly?: boolean };
 const NAV: NavItem[] = [
@@ -90,6 +91,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <button className="btn btn-ghost btn-sm" onClick={resetDemo}>Reset demo</button>
           </div>
         )}
+        <PasskeyNudge />
         {needsLead && (
           <button className="banner banner-warn" onClick={() => setPickerOpen(true)}>
             <Icon name="alert" />

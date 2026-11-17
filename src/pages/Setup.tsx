@@ -21,6 +21,7 @@ import Modal from '../components/Modal';
 import { useConfirm } from '../components/Confirm';
 import { PhotoPicker, PhotoThumb } from '../components/Photo';
 import { usePositions } from '../lib/usePositions';
+import { accountAction } from '../lib/passkeys';
 import { removeFiles, uploadFile } from '../lib/files';
 
 type Tab = 'store' | 'leads' | 'checklists' | 'positions' | 'waste' | 'equipment' | 'team';
@@ -791,12 +792,31 @@ function TeamEditor() {
 
   const pending = people.filter((p) => p.role === 'pending').length;
   const [settingPassword, setSettingPassword] = useState<Profile | null>(null);
+  const [coding, setCoding] = useState<Profile | null>(null);
+  const confirm = useConfirm();
+  const [methods, setMethods] = useState<Record<string, { email: string | null; passkeys: number | null }>>({});
+
+  const loadMethods = useCallback(async () => {
+    const { data } = await accountAction<{ people: { userId: string; email: string | null; passkeys: number | null }[] }>({ action: 'team' });
+    if (data) setMethods(Object.fromEntries(data.people.map((p) => [p.userId, { email: p.email, passkeys: p.passkeys }])));
+  }, []);
+  useEffect(() => {
+    loadMethods();
+  }, [loadMethods]);
+
+  async function removePasskeys(p: Profile) {
+    if (!(await confirm({ title: `Remove ${p.full_name || 'their'}'s passkeys?`, body: 'Use this if a phone or tablet is lost or replaced. They will need a sign-in code to set up a new passkey.', confirmLabel: 'Remove passkeys', danger: true }))) return;
+    const { data, error } = await accountAction<{ removed: number }>({ action: 'remove-passkeys', userId: p.id });
+    if (error) return toast(error, 'error');
+    toast(`Removed ${data?.removed ?? 0} passkey${data?.removed === 1 ? '' : 's'}`);
+    loadMethods();
+  }
 
   return (
     <section className="card">
       <SectionIntro title="Team accounts">
         New sign-ups wait here until you give them a role. Use "Shared Kitchen Device" for the store tablet's login. Set someone to "No access" to remove their access.
-        If someone forgets their password, use "Set password" to give them a temporary one.
+        Everyone signs in with a passkey. For a new or replaced phone or tablet, give the person a one-time sign-in code.
       </SectionIntro>
       {pending > 0 && <div className="banner banner-warn"><Icon name="alert" /> {pending} {pending === 1 ? 'person is' : 'people are'} waiting for approval.</div>}
       <ul className="edit-list">
@@ -809,6 +829,16 @@ function TeamEditor() {
                 <div className="muted small person-meta">
                   Joined {new Date(p.created_at).toLocaleDateString()}
                   {p.id === me?.id && <span className="pill">You</span>}
+                  {methods[p.id] && (
+                    <span className="signin-methods">
+                      {methods[p.id].passkeys ? (
+                        <span className="pill pill-ok"><Icon name="key" size={12} /> {methods[p.id].passkeys} passkey{methods[p.id].passkeys === 1 ? '' : 's'}</span>
+                      ) : (
+                        <span className="pill pill-warn">No passkey yet</span>
+                      )}
+                      {methods[p.id].email && <span className="pill">Email</span>}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -817,16 +847,65 @@ function TeamEditor() {
                 <option key={r} value={r}>{ROLE_LABELS[r]}</option>
               ))}
             </select>
-            {p.id !== me?.id && (
-              <button className="btn btn-ghost btn-sm" onClick={() => setSettingPassword(p)}>
-                <Icon name="key" size={16} /> Set password
+            <div className="person-actions">
+              <button className="btn btn-ghost btn-sm" onClick={() => setCoding(p)}>
+                <Icon name="key" size={16} /> Sign-in code
               </button>
-            )}
+              {p.id !== me?.id && methods[p.id]?.email && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setSettingPassword(p)}>Set password</button>
+              )}
+              {p.id !== me?.id && (methods[p.id]?.passkeys ?? 0) > 0 && (
+                <button className="btn btn-ghost btn-sm text-danger" onClick={() => removePasskeys(p)}>Remove passkeys</button>
+              )}
+            </div>
           </li>
         ))}
       </ul>
       {settingPassword && <SetPasswordModal person={settingPassword} onClose={() => setSettingPassword(null)} />}
+      {coding && <SignInCodeModal person={coding} onClose={() => setCoding(null)} />}
     </section>
+  );
+}
+
+function SignInCodeModal({ person, onClose }: { person: Profile; onClose: () => void }) {
+  const { toast } = useApp();
+  const [result, setResult] = useState<{ code: string; expires_at: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function make() {
+    setBusy(true);
+    const { data, error } = await accountAction<{ code: string; expires_at: string }>({ action: 'code-create', userId: person.id });
+    setBusy(false);
+    if (error || !data) return toast(error ?? 'Could not make a code', 'error');
+    setResult(data);
+  }
+
+  return (
+    <Modal title={`Sign-in code for ${person.full_name || 'this person'}`} onClose={onClose}>
+      {result ? (
+        <>
+          <div className="temp-password code-display">
+            <code>{result.code}</code>
+          </div>
+          <ol className="code-steps">
+            <li>On the new phone or tablet, open the app.</li>
+            <li>Tap <strong>I have a sign-in code</strong> and enter this code.</li>
+            <li>Tap <strong>Save passkey</strong> when the app asks.</li>
+          </ol>
+          <p className="muted small">Works once, until {new Date(result.expires_at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}. Making a new code cancels this one. Give it to them in person.</p>
+          <button className="btn btn-primary btn-block" onClick={onClose}>Done</button>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            A one-time code lets {person.full_name || 'them'} sign in on a new or replaced device and save a passkey there. For the store tablet, make a code for the Shared Kitchen Device account.
+          </p>
+          <button className="btn btn-primary btn-block" onClick={make} disabled={busy}>
+            <Icon name="key" size={18} /> {busy ? 'Making code…' : 'Make a sign-in code'}
+          </button>
+        </>
+      )}
+    </Modal>
   );
 }
 

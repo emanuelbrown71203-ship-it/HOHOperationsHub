@@ -638,11 +638,29 @@ export function createDemoClient() {
     },
 
     functions: {
-      invoke: async (name: string) => {
+      invoke: async (name: string, opts?: { body?: Row }) => {
         await new Promise((r) => setTimeout(r, 200));
-        if (name !== 'set-password') return { data: null, error: { message: `Unknown function ${name}` } };
-        if (me()?.role !== 'director') return { data: null, error: { message: 'Only directors can set passwords for other people.' } };
-        return { data: { ok: true }, error: null }; // the demo has no real passwords
+        const body = opts?.body ?? {};
+        const isDirector = me()?.role === 'director';
+        if (name === 'set-password') {
+          if (!isDirector) return { data: null, error: { message: 'Only directors can set passwords for other people.' } };
+          return { data: { ok: true }, error: null }; // the demo has no real passwords
+        }
+        if (name === 'account') {
+          if (body.action === 'team') {
+            if (!isDirector) return { data: null, error: { message: 'Only directors can see this.' } };
+            return { data: { people: db.profiles.map((p) => ({ userId: p.id, email: null, passkeys: p.role === 'pending' ? 0 : p.role === 'director' ? 2 : 1 })) }, error: null };
+          }
+          if (body.action === 'code-create') {
+            if (!isDirector) return { data: null, error: { message: 'Only directors can make sign-in codes.' } };
+            const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+            const c = Array.from({ length: 8 }, () => A[Math.floor(Math.random() * A.length)]).join('');
+            return { data: { code: `${c.slice(0, 4)}-${c.slice(4)}`, expires_at: new Date(Date.now() + 864e5).toISOString() }, error: null };
+          }
+          if (body.action === 'remove-passkeys') return { data: { removed: 1 }, error: null };
+          return { data: null, error: { message: 'Passkeys can’t be used in this demo.' } };
+        }
+        return { data: null, error: { message: `Unknown function ${name}` } };
       },
     },
 
