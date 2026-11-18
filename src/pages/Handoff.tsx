@@ -6,6 +6,7 @@ import { addDays, formatDateTime, formatDay, formatTime } from '../lib/dates';
 import { previousShift } from '../lib/handoff';
 import { removeFiles, uploadFile } from '../lib/files';
 import { shiftTone } from '../lib/tone';
+import { useSchedule } from '../lib/useSchedule';
 import type { HandoffPhoto, ShiftHandoff, ShiftRating } from '../lib/types';
 import Icon from '../components/Icon';
 import Stars, { RATING_WORDS } from '../components/Stars';
@@ -121,35 +122,45 @@ export function RateCard({
   onSaved: () => void;
   compact?: boolean;
 }) {
-  const { ensureActor, actorLeadId, actorName, toast, leads, myLeadId, canViewScores, isManager } = useApp();
+  const { ensureActor, actorLeadId, actorName, toast, leads, myLeadId, canViewScores, isManager, settings } = useApp();
   const rated = !!handoff?.rated_at;
   const [editing, setEditing] = useState(!rated);
   const [rating, setRating] = useState(0);
+  const cats = settings.rating_categories;
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const filled = cats.filter((c) => scores[c]).length;
+  const overall = cats.length ? (filled ? cats.reduce((n, c) => n + (scores[c] ?? 0), 0) / filled : 0) : rating;
+  // No lead recorded yet? The schedule says who ran the shift.
+  const { entryFor } = useSchedule(date, date);
+  const scheduled = handoff?.lead_id ? null : leads.find((l) => l.id === entryFor(date, shift)?.lead_id) ?? null;
+  const shiftLeadId = handoff?.lead_id ?? scheduled?.id ?? null;
   const [comment, setComment] = useState('');
   const [pickedLead, setPickedLead] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     setEditing(!handoff?.rated_at);
     setRating(0);
+    setScores({});
     setComment('');
   }, [handoff?.rated_at]);
 
-  const leadName = handoff?.lead_name ?? leads.find((l) => l.id === pickedLead)?.name ?? null;
-  const ownShift = !!myLeadId && !!handoff?.lead_id && handoff.lead_id === myLeadId;
+  const leadName = handoff?.lead_name ?? scheduled?.name ?? leads.find((l) => l.id === pickedLead)?.name ?? null;
+  const ownShift = !!myLeadId && !!shiftLeadId && shiftLeadId === myLeadId;
   const canChange = isManager || (!!actorName && handoff?.rated_by_name === actorName);
 
   async function save() {
-    if (!rating) return toast('Tap the stars to rate the setup', 'error');
-    if (!handoff?.lead_id && !pickedLead) return toast(`Choose who was the ${shift} Shift Lead`, 'error');
+    if (cats.length ? filled < cats.length : !rating) return toast(cats.length ? 'Give every category a star rating' : 'Tap the stars to rate the setup', 'error');
+    if (!shiftLeadId && !pickedLead) return toast(`Choose who was the ${shift} Shift Lead`, 'error');
     if (!ensureActor()) return;
     setSaving(true);
-    const { error } = await supabase.rpc('rate_shift', {
+    const { error } = await supabase.rpc('rate_setup', {
       p_date: date,
       p_shift: shift,
-      p_rating: rating,
+      p_scores: cats.length ? Object.fromEntries(cats.map((c) => [c, scores[c]])) : null,
+      p_rating: cats.length ? null : rating,
       p_comment: comment.trim() || null,
       p_lead_id: actorLeadId,
-      p_rated_lead_id: handoff?.lead_id ? null : pickedLead,
+      p_rated_lead_id: shiftLeadId ? null : pickedLead,
     });
     setSaving(false);
     if (error) return toast(errorMessage(error), 'error');
@@ -165,10 +176,10 @@ export function RateCard({
         <ShiftBadge shift={shift} date={date} />
       </div>
 
-      {handoff?.lead_name && (
+      {(handoff?.lead_name || scheduled) && (
         <div className="rated-lead">
-          <span className="avatar sm" aria-hidden="true">{handoff.lead_name.slice(0, 1).toUpperCase()}</span>
-          <span>Shift Lead <strong>{handoff.lead_name}</strong>{rated ? '' : ' · this rating counts toward their lead score'}</span>
+          <span className="avatar sm" aria-hidden="true">{(handoff?.lead_name ?? scheduled!.name).slice(0, 1).toUpperCase()}</span>
+          <span>Shift Lead <strong>{handoff?.lead_name ?? scheduled!.name}</strong>{rated ? '' : ' · this rating counts toward their lead score'}</span>
         </div>
       )}
 
@@ -195,7 +206,7 @@ export function RateCard({
         <p className="own-shift">You ran the {shift} shift, so the rating has to come from someone else.</p>
       ) : editing ? (
         <div className="rate-form">
-          {!handoff?.lead_id && (
+          {!shiftLeadId && (
             <div className="field">
               <span>Who was the {shift} Shift Lead?</span>
               <div className="chips">
@@ -205,8 +216,26 @@ export function RateCard({
               </div>
             </div>
           )}
-          <Stars value={rating} onChange={setRating} size="lg" />
-          <span className="rating-word">{RATING_WORDS[rating] || 'How was the setup when you came in?'}</span>
+          {cats.length > 0 ? (
+            <>
+              <div className="cat-rows">
+                {cats.map((c) => (
+                  <div key={c} className="cat-row" role="group" aria-label={c}>
+                    <span className="cat-name">{c}</span>
+                    <Stars value={scores[c] ?? 0} onChange={(v) => setScores((s) => ({ ...s, [c]: v }))} />
+                  </div>
+                ))}
+              </div>
+              <span className="rating-word">
+                {filled === 0 ? 'How was the setup when you came in? Rate each part.' : `Overall ${overall.toFixed(1)} · ${RATING_WORDS[Math.round(overall)]}${filled < cats.length ? ` (${cats.length - filled} left)` : ''}`}
+              </span>
+            </>
+          ) : (
+            <>
+              <Stars value={rating} onChange={setRating} size="lg" />
+              <span className="rating-word">{RATING_WORDS[rating] || 'How was the setup when you came in?'}</span>
+            </>
+          )}
           <textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anything they did great, or should fix next time? (optional)" aria-label="Rating comment" />
           <div className="row-gap wrap">
             {rated && <button className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>}
@@ -220,7 +249,8 @@ export function RateCard({
             <>
               <Stars value={existing.rating} />
               <div>
-                <strong>{RATING_WORDS[existing.rating]}</strong>
+                <strong>{RATING_WORDS[existing.rating]}{existing.category_scores && existing.score ? ` · ${Number(existing.score).toFixed(1)}` : ''}</strong>
+                <CategoryChips scores={existing.category_scores} />
                 {existing.comment && <p className="rated-comment">“{existing.comment}”</p>}
                 <span className="muted small">Rated by {existing.rated_by_name} · {formatTime(existing.rated_at)}</span>
               </div>
@@ -235,6 +265,18 @@ export function RateCard({
         </div>
       )}
     </section>
+  );
+}
+
+/** The stars each category got, as small chips. */
+export function CategoryChips({ scores }: { scores: Record<string, number> | null | undefined }) {
+  if (!scores || Object.keys(scores).length === 0) return null;
+  return (
+    <span className="cat-chips">
+      {Object.entries(scores).map(([c, v]) => (
+        <span key={c} className={`cat-chip ${v <= 2 ? 'low' : ''}`}>{c} <b>{v}</b><i aria-hidden="true">★</i></span>
+      ))}
+    </span>
   );
 }
 
@@ -360,6 +402,7 @@ function HistoryRow({ handoff, rating, photos, tone }: { handoff: ShiftHandoff; 
             <p className="small">
               <strong>{RATING_WORDS[rating.rating]}</strong> · rated by {rating.rated_by_name}, {formatDateTime(rating.rated_at)}
               {rating.comment && <><br />“{rating.comment}”</>}
+              <br /><CategoryChips scores={rating.category_scores} />
             </p>
           ) : handoff.rated_at ? (
             <p className="small muted">Rated by {handoff.rated_by_name}, {formatDateTime(handoff.rated_at)}</p>

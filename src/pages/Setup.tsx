@@ -212,6 +212,15 @@ function StoreEditor() {
       <ScoresVisibilityEditor />
 
       <section className="card">
+        <SectionIntro title="What the incoming shift rates">
+          Each of these gets its own 1 to 5 stars when a shift rates the setup it walked into. The lead's score is the average. Remove them all to go back to one overall rating.
+        </SectionIntro>
+        <ListEditor items={settings.rating_categories} noun="category" onChange={(rating_categories) => save({ rating_categories })} />
+      </section>
+
+      <NotificationsEditor />
+
+      <section className="card">
         <SectionIntro title="Waste reasons">The reason buttons on the Waste Log.</SectionIntro>
         <ListEditor items={settings.waste_reasons} noun="reason" onChange={(waste_reasons) => save({ waste_reasons })} />
       </section>
@@ -253,6 +262,40 @@ function ScoresVisibilityEditor() {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+const TIMEZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
+
+function NotificationsEditor() {
+  const { settings } = useApp();
+  const save = useSaveSettings();
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = [...new Set([...TIMEZONES, device, settings.timezone])];
+  return (
+    <section className="card">
+      <SectionIntro title="Phone notifications for HOH Leads">
+        When this is on, sending the schedule tells each lead about their own shifts, and each lead gets a reminder an hour before their shift starts. A lead who is off gets nothing.
+        To get them, a lead needs their own account linked to their name (Setup → HOH Leads) and has to turn notifications on in Account on their phone.
+      </SectionIntro>
+      <label className={`toggle ${settings.notifications_enabled ? 'toggle-on' : ''}`}>
+        <input
+          type="checkbox"
+          checked={settings.notifications_enabled}
+          onChange={(e) => save(e.target.checked ? { notifications_enabled: true, timezone: device || settings.timezone } : { notifications_enabled: false }, e.target.checked ? 'Notifications are on' : 'Notifications are off')}
+        />
+        <span className="toggle-track" aria-hidden="true"><span /></span>
+        <span>{settings.notifications_enabled ? 'On' : 'Off'}</span>
+      </label>
+      {settings.notifications_enabled && (
+        <label className="field">
+          <span>Store time zone (for the reminder an hour before each shift)</span>
+          <select value={settings.timezone} onChange={(e) => save({ timezone: e.target.value }, 'Time zone saved')}>
+            {zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
+          </select>
+        </label>
+      )}
     </section>
   );
 }
@@ -418,7 +461,7 @@ function ChecklistsEditor() {
   return (
     <div className="two-col setup-cols">
       <section className="card">
-        <SectionIntro title="HOH Lead checklists">The few checklists the HOH Lead must complete in the app. Pick one to edit its tasks.</SectionIntro>
+        <SectionIntro title="HOH Lead checklists">The few checklists the HOH Lead must complete in the app. Pick one to edit it. Changes save as you go.</SectionIntro>
         <AddRow
           placeholder="New checklist name"
           onAdd={async (name) => {
@@ -448,50 +491,145 @@ function ChecklistsEditor() {
         </ul>
       </section>
 
-      {current && <TemplateEditor key={current.id} template={current} onChanged={() => run(Promise.resolve({ error: null }))} />}
+      {current && <TemplateEditor key={current.id} template={current} onChanged={() => run(Promise.resolve({ error: null }))} onCreated={setSelected} />}
     </div>
   );
 }
 
-function TemplateEditor({ template, onChanged }: { template: ChecklistTemplate; onChanged: () => void }) {
+function Segmented<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="field">
+      <span>{label}</span>
+      <div className="segmented" role="radiogroup" aria-label={label}>
+        {options.map(([k, text]) => (
+          <button key={k} type="button" role="radio" aria-checked={value === k} className={value === k ? 'on' : ''} onClick={() => value !== k && onChange(k)}>{text}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TemplateEditor({ template, onChanged, onCreated }: { template: ChecklistTemplate; onChanged: () => void; onCreated: (id: string) => void }) {
   const { toast, shiftNames } = useApp();
   const confirm = useConfirm();
-  const { rows: items, run, move } = useTable<ChecklistItem>('checklist_items', { column: 'template_id', value: template.id });
+  const { rows, run, load } = useTable<ChecklistItem>('checklist_items', { column: 'template_id', value: template.id });
+  const items = rows.filter((i) => i.active);
+  const [text, setText] = useState('');
+  const [photo, setPhoto] = useState(false);
 
   async function updateTemplate(patch: Partial<ChecklistTemplate>) {
     const { error } = await supabase.from('checklist_templates').update(patch).eq('id', template.id);
     if (error) return toast(errorMessage(error), 'error');
-    toast('Saved');
     onChanged();
   }
 
+  /** One task per line, so a whole list can be typed or pasted in one go. */
+  async function addTasks(e: FormEvent) {
+    e.preventDefault();
+    const labels = text.split('\n').map((l) => l.replace(/^[\s\-•*\d.)\]\[]+/, '').trim()).filter(Boolean);
+    if (labels.length === 0) return;
+    const start = nextOrder(rows);
+    const ok = await run(
+      supabase.from('checklist_items').insert(labels.map((label, i) => ({ template_id: template.id, label, requires_photo: photo, sort_order: start + i }))),
+      labels.length > 1 ? `Added ${labels.length} tasks` : undefined,
+    );
+    if (ok) setText('');
+  }
+
+  async function moveTask(index: number, dir: -1 | 1) {
+    const list = [...items];
+    const j = index + dir;
+    if (j < 0 || j >= list.length) return;
+    [list[index], list[j]] = [list[j], list[index]];
+    await Promise.all(list.map((r, i) => supabase.from('checklist_items').update({ sort_order: i + 1 }).eq('id', r.id)));
+    await load();
+  }
+
+  async function removeTask(it: ChecklistItem) {
+    // Hidden rather than deleted, so past check-offs stay in the record.
+    await supabase.from('checklist_items').update({ active: false }).eq('id', it.id);
+    await load();
+    toast(`Removed "${it.label}"`);
+  }
+
+  async function duplicate() {
+    const { data, error } = await supabase
+      .from('checklist_templates')
+      .insert({ name: `${template.name} (copy)`, shift: template.shift, frequency: template.frequency, sort_order: template.sort_order + 1 })
+      .select()
+      .single();
+    if (error || !data) return toast(errorMessage(error), 'error');
+    const id = (data as ChecklistTemplate).id;
+    if (items.length) await supabase.from('checklist_items').insert(items.map((i) => ({ template_id: id, label: i.label, requires_photo: i.requires_photo, sort_order: i.sort_order })));
+    toast('Copied. Rename it and change the shift.');
+    onChanged();
+    onCreated(id);
+  }
+
+  const shiftOptions = [...new Set([...shiftNames, 'Any', template.shift])].map((s) => [s, s === 'Any' ? 'Any shift' : s] as [string, string]);
+
   return (
-    <section className="card">
+    <section className="card builder">
+      <label className="field">
+        <span>Checklist name</span>
+        <InlineText className="big-input" label="Checklist name" value={template.name} onSave={(name) => updateTemplate({ name })} />
+      </label>
       <div className="field-row">
-        <label className="field grow">
-          <span>Checklist name</span>
-          <InlineText className="big-input" label="Checklist name" value={template.name} onSave={(name) => updateTemplate({ name })} />
-        </label>
+        <Segmented label="Shift" value={template.shift} options={shiftOptions} onChange={(shift) => updateTemplate({ shift })} />
+        <Segmented label="Repeats" value={template.frequency} options={[['daily', 'Every day'], ['weekly', 'Every week']]} onChange={(frequency) => updateTemplate({ frequency })} />
       </div>
-      <div className="field-row">
-        <label className="field">
-          <span>Shift</span>
-          <select value={template.shift} onChange={(e) => updateTemplate({ shift: e.target.value })}>
-            {[...new Set([...shiftNames, 'Any', template.shift])].map((s) => (
-              <option key={s} value={s}>{s === 'Any' ? 'Any shift' : s}</option>
-            ))}
-          </select>
-        </label>
-        <label className="field">
-          <span>Repeats</span>
-          <select value={template.frequency} onChange={(e) => updateTemplate({ frequency: e.target.value as ChecklistTemplate['frequency'] })}>
-            <option value="daily">Every day</option>
-            <option value="weekly">Every week (resets Monday)</option>
-          </select>
-        </label>
-      </div>
-      <div className="row-between wrap">
+
+      <h3>Tasks {items.length > 0 && <span className="muted small">({items.length})</span>}</h3>
+      {items.length === 0 ? (
+        <p className="empty">No tasks yet. Type them below, one per line.</p>
+      ) : (
+        <ul className="edit-list task-list">
+          {items.map((it, i) => (
+            <li key={it.id}>
+              <Reorder index={i} count={items.length} onMove={moveTask} />
+              <InlineText label="Task" value={it.label} onSave={(label) => run(supabase.from('checklist_items').update({ label }).eq('id', it.id))} />
+              <button
+                type="button"
+                className={`photo-chip ${it.requires_photo ? 'on' : ''}`}
+                aria-pressed={it.requires_photo}
+                title={it.requires_photo ? 'A photo is required to check this off. Tap to turn off.' : 'Tap to require a photo for this task'}
+                onClick={() => run(supabase.from('checklist_items').update({ requires_photo: !it.requires_photo }).eq('id', it.id))}
+              >
+                <Icon name="camera" size={16} /> {it.requires_photo ? 'Photo required' : 'Ask for a photo'}
+              </button>
+              <button className="icon-btn" aria-label={`Remove ${it.label}`} onClick={() => removeTask(it)}><Icon name="x" size={18} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form className="task-add" onSubmit={addTasks}>
+        <textarea
+          rows={Math.min(8, Math.max(2, text.split('\n').length))}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !text.includes('\n')) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          placeholder={'Type a task and press Enter.\nOr paste a whole list, one task per line.'}
+          aria-label="New tasks, one per line"
+        />
+        <div className="row-between wrap">
+          <label className={`toggle ${photo ? 'toggle-on' : ''}`}>
+            <input type="checkbox" checked={photo} onChange={(e) => setPhoto(e.target.checked)} />
+            <span className="toggle-track" aria-hidden="true"><span /></span>
+            <span>Ask for a photo</span>
+          </label>
+          <button className="btn btn-primary" disabled={!text.trim()}><Icon name="plus" size={18} /> Add {text.includes('\n') ? 'tasks' : 'task'}</button>
+        </div>
+      </form>
+
+      <div className="builder-foot">
         <ActiveToggle active={template.active} onChange={(active) => updateTemplate({ active })} />
+        <button className="btn btn-ghost btn-sm" onClick={duplicate}><Icon name="copy" size={16} /> Make a copy</button>
         <button
           className="btn btn-ghost btn-sm text-danger"
           onClick={async () => {
@@ -502,39 +640,9 @@ function TemplateEditor({ template, onChanged }: { template: ChecklistTemplate; 
             onChanged();
           }}
         >
-          <Icon name="trash" size={16} /> Delete checklist
+          <Icon name="trash" size={16} /> Delete
         </button>
       </div>
-
-      <h3>Tasks</h3>
-      <AddRow
-        placeholder="New task, e.g. Filter fryers"
-        onAdd={(label) => run(supabase.from('checklist_items').insert({ template_id: template.id, label, sort_order: nextOrder(items) }))}
-      />
-      {items.length === 0 ? (
-        <p className="empty">No tasks yet.</p>
-      ) : (
-        <ul className="edit-list">
-          {items.map((it, i) => (
-            <li key={it.id} className={it.active ? '' : 'inactive'}>
-              <Reorder index={i} count={items.length} onMove={move} />
-              <InlineText label="Task" value={it.label} onSave={(label) => run(supabase.from('checklist_items').update({ label }).eq('id', it.id))} />
-              <ActiveToggle active={it.active} onChange={(active) => run(supabase.from('checklist_items').update({ active }).eq('id', it.id))} />
-              <button
-                className="icon-btn"
-                aria-label="Delete task"
-                onClick={async () => {
-                  if (await confirm({ title: `Delete "${it.label}"?`, body: 'Its check-off history is removed too. To keep history, hide it instead.', confirmLabel: 'Delete', danger: true })) {
-                    run(supabase.from('checklist_items').delete().eq('id', it.id));
-                  }
-                }}
-              >
-                <Icon name="trash" size={18} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }
@@ -585,14 +693,56 @@ function WasteItemsEditor() {
 /* ------------------------------------------------------------------ */
 /* Equipment                                                           */
 /* ------------------------------------------------------------------ */
+function NumberSetting({ label, value, min, max, unit, onSave }: { label: string; value: number; min: number; max: number; unit: string; onSave: (n: number) => void }) {
+  const [v, setV] = useState(String(value));
+  useEffect(() => setV(String(value)), [value]);
+  return (
+    <label className="field number-setting">
+      <span>{label}</span>
+      <span className="hours-field">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          onBlur={() => {
+            const n = Math.round(Number(v));
+            if (!Number.isFinite(n) || n < min || n > max) setV(String(value));
+            else if (n !== value) onSave(n);
+          }}
+        />
+        {unit}
+      </span>
+    </label>
+  );
+}
+
+function FryerSettings() {
+  const { settings } = useApp();
+  const save = useSaveSettings();
+  return (
+    <section className="card">
+      <SectionIntro title="Fryer Tracker">How often each fryer should be filtered and have its oil changed. Any equipment in the “Fryer” category shows up on the Fryer Tracker.</SectionIntro>
+      <div className="field-row">
+        <NumberSetting label="Filter every" value={settings.fryer_filter_hours} min={1} max={720} unit="hours" onSave={(fryer_filter_hours) => save({ fryer_filter_hours })} />
+        <NumberSetting label="Change oil every" value={settings.fryer_oil_days} min={1} max={90} unit="days" onSave={(fryer_oil_days) => save({ fryer_oil_days })} />
+      </div>
+    </section>
+  );
+}
+
 function EquipmentEditor() {
   const { rows, run, move } = useTable<Equipment>('equipment');
   const confirm = useConfirm();
   const [category, setCategory] = useState('Fryer');
   const categories = [...new Set(['Fryer', 'Cooking', 'Holding', 'Prep', 'Refrigeration', 'Cleaning', 'Other', ...rows.map((r) => r.category)])];
   return (
+    <div className="stack">
+    <FryerSettings />
     <section className="card">
-      <SectionIntro title="Equipment">The list people pick from when they leave a kitchen note. Hide anything you no longer have.</SectionIntro>
+      <SectionIntro title="Equipment">The list people pick from when they report an equipment issue. Hide anything you no longer have.</SectionIntro>
       <datalist id="equip-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
       <AddRow placeholder="Equipment name" onAdd={(name) => run(supabase.from('equipment').insert({ name, category: category.trim() || 'Other', sort_order: nextOrder(rows) }), `Added ${name}`)}>
         <input list="equip-cats" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className="cat-input" placeholder="Category" />
@@ -617,7 +767,7 @@ function EquipmentEditor() {
               className="icon-btn"
               aria-label={`Delete ${eq.name}`}
               onClick={async () => {
-                if (await confirm({ title: `Delete ${eq.name}?`, body: 'This deletes all of its notes too. To keep them, hide it instead.', confirmLabel: 'Delete', danger: true })) {
+                if (await confirm({ title: `Delete ${eq.name}?`, body: 'This deletes all of its issue reports and fryer entries too. To keep them, hide it instead.', confirmLabel: 'Delete', danger: true })) {
                   run(supabase.from('equipment').delete().eq('id', eq.id));
                 }
               }}
@@ -628,6 +778,7 @@ function EquipmentEditor() {
         ))}
       </ul>
     </section>
+    </div>
   );
 }
 

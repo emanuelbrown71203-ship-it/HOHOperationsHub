@@ -11,11 +11,17 @@ import Icon from '../components/Icon';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import { FocusCard, ShoutoutCard } from '../components/HomeCards';
 import ScoreboardCard from '../components/ScoreboardCard';
+import LeadOfMonthBanner from '../components/LeadOfMonth';
+import { useSchedule } from '../lib/useSchedule';
+import { useFryers } from './Fryers';
 import { NoteCard, useKitchenNotes } from './Notes';
 import { RateCard, useHandoffs } from './Handoff';
 
 export default function Home() {
-  const { today, shift, shiftNames, settings, actorName, isKitchen, canViewScores } = useApp();
+  const { today, shift, shiftNames, settings, actorName, isKitchen, canViewScores, leads } = useApp();
+  const { entryFor } = useSchedule(today, today);
+  const { due: fryersDue } = useFryers(today);
+  const scheduled = shiftNames.map((s) => ({ shift: s, name: leads.find((l) => l.id === entryFor(today, s)?.lead_id)?.name ?? null }));
   const { progress } = useChecklists(today);
   const { open: openNotes, nameOf } = useKitchenNotes(today);
   const { byKey, photosFor, ratingFor, reload: reloadHandoffs } = useHandoffs(today);
@@ -58,6 +64,16 @@ export default function Home() {
         </Link>
       </section>
 
+      <Link to="/schedule" className="today-leads" aria-label="Today's Shift Leads. Open the schedule.">
+        <span className="eyebrow"><Icon name="calendar" size={14} /> Today’s Shift Leads</span>
+        {scheduled.map((s) => (
+          <span key={s.shift} className={`today-lead ${s.shift === shift ? 'now' : ''}`}>{s.shift} <strong>{s.name ?? 'Not set'}</strong></span>
+        ))}
+        <Icon name="chevron" size={16} />
+      </Link>
+
+      <LeadOfMonthBanner />
+
       <div className="home-top">
         <FocusCard />
         <ShoutoutCard />
@@ -66,7 +82,7 @@ export default function Home() {
       <div className="quick">
         <Link to="/checklists" className="quick-btn sec-checklists"><span className="quick-icon"><Icon name="check" size={22} /></span>Checklists</Link>
         <Link to="/handoff" className="quick-btn sec-handoff"><span className="quick-icon"><Icon name="camera" size={22} /></span>{isClose ? 'Close-out photos' : 'Shift swap photos'}</Link>
-        <Link to="/notes?new=1" className="quick-btn sec-notes"><span className="quick-icon"><Icon name="note" size={22} /></span>Kitchen note</Link>
+        <Link to="/fryers" className="quick-btn sec-fryers"><span className="quick-icon"><Icon name="flame" size={22} /></span>Fryer Tracker{fryersDue.length > 0 && <span className="quick-badge">{fryersDue.length} due</span>}</Link>
       </div>
 
       <div className="dash-grid">
@@ -153,18 +169,18 @@ export default function Home() {
 
         <section className="card sec-notes notes-panel">
           <div className="card-head">
-            <h2><span className="dot dot-danger" />Kitchen notes</h2>
-            <Link to="/notes" className="link-more">All notes <Icon name="chevron" size={16} /></Link>
+            <h2><span className="dot dot-danger" />Equipment issues{openNotes.length > 0 && ` (${openNotes.length})`}</h2>
+            <Link to="/notes" className="link-more">See all <Icon name="chevron" size={16} /></Link>
           </div>
           {openNotes.length === 0 ? (
             <div className="all-clear"><Icon name="done" size={18} /> Nothing broken right now</div>
           ) : (
             <div className="note-board compact">
-              {openNotes.slice(0, 6).map((n) => <NoteCard key={n.id} note={n} equipmentName={nameOf(n.equipment_id)} compact />)}
-              {openNotes.length > 6 && <Link to="/notes" className="link-more">+{openNotes.length - 6} more</Link>}
+              {openNotes.slice(0, 3).map((n) => <NoteCard key={n.id} note={n} equipmentName={nameOf(n.equipment_id)} compact />)}
+              {openNotes.length > 3 && <Link to="/notes" className="link-more">+{openNotes.length - 3} more</Link>}
             </div>
           )}
-          <Link to="/notes?new=1" className="btn btn-ghost btn-block"><Icon name="plus" size={18} /> Add a note</Link>
+          <Link to="/notes?new=1" className="btn btn-ghost btn-block"><Icon name="plus" size={18} /> Report an equipment issue</Link>
         </section>
       </div>
     </div>

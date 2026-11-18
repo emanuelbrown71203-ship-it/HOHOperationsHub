@@ -13,14 +13,23 @@ type NavItem = { to: string; label: string; icon: IconName; section: string; adm
 const NAV: NavItem[] = [
   { to: '/', label: 'Home', icon: 'home', section: 'home' },
   { to: '/scores', label: 'Lead Scores', icon: 'trophy', section: 'scores', scoresOnly: true },
+  { to: '/schedule', label: 'Lead Schedule', icon: 'calendar', section: 'schedule' },
   { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
-  { to: '/handoff', label: 'Handoff', icon: 'swap', section: 'handoff' },
-  { to: '/notes', label: 'Notes', icon: 'note', section: 'notes' },
-  { to: '/waste', label: 'Waste', icon: 'trash', section: 'waste' },
+  { to: '/handoff', label: 'Shift Handoff', icon: 'swap', section: 'handoff' },
+  { to: '/fryers', label: 'Fryer Tracker', icon: 'flame', section: 'fryers' },
+  { to: '/training', label: 'Who’s Trained', icon: 'users', section: 'training' },
+  { to: '/waste', label: 'Waste Log', icon: 'trash', section: 'waste' },
+  { to: '/notes', label: 'Equipment Issues', icon: 'wrench', section: 'notes' },
   { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', adminOnly: true },
 ];
-// Phone tab bar: the four daily screens, plus More (lead scores, waste, setup, account).
-const TABS: NavItem[] = [...NAV.filter((n) => !n.scoresOnly && !n.adminOnly).slice(0, 4), { to: '/more', label: 'More', icon: 'grid', section: 'setup' }];
+// Phone tab bar: the daily screens, plus More (everything else, each with a line saying what it is).
+const TABS: NavItem[] = [
+  { to: '/', label: 'Home', icon: 'home', section: 'home' },
+  { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
+  { to: '/handoff', label: 'Handoff', icon: 'swap', section: 'handoff' },
+  { to: '/schedule', label: 'Schedule', icon: 'calendar', section: 'schedule' },
+  { to: '/more', label: 'More', icon: 'grid', section: 'setup' },
+];
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, profile, settings, canViewScores } = useApp();

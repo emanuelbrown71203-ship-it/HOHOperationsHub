@@ -55,6 +55,8 @@ interface AppState {
   isDirector: boolean;
   /** Can configure the app: Setup, team accounts, who sees lead scores. */
   isAdmin: boolean;
+  /** Directors and admins build the Shift Lead schedule. */
+  canSchedule: boolean;
   isKitchen: boolean;
   /** True after someone opens a password-reset link; the app asks for a new password. */
   recovering: boolean;
@@ -232,6 +234,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const isKitchen = profile?.role === 'kitchen';
+
+  /* ---- the shared device picks up the scheduled Shift Lead by itself ---- */
+  // Someone can still tap the Shift Lead chip to change it; that choice sticks for the shift.
+  const [scheduledLead, setScheduledLead] = useState<{ key: string; leadId: string } | null>(null);
+  const loadScheduled = useCallback(async () => {
+    if (!active) return;
+    const { data } = await supabase.from('shift_schedule').select('lead_id').eq('shift_date', today).eq('shift', shift).maybeSingle();
+    setScheduledLead(data ? { key: `${today}|${shift}`, leadId: (data as { lead_id: string }).lead_id } : null);
+  }, [active, today, shift]);
+  useEffect(() => {
+    loadScheduled();
+  }, [loadScheduled]);
+  useRealtime(active ? ['shift_schedule'] : [], loadScheduled);
+  useEffect(() => {
+    if (!isKitchen || leadId || !scheduledLead || scheduledLead.key !== `${today}|${shift}`) return;
+    if (storedLead && storedLead.date === today && storedLead.shift === shift) return; // already chosen by hand
+    if (leads.some((l) => l.id === scheduledLead.leadId)) setLeadId(scheduledLead.leadId);
+  }, [isKitchen, leadId, scheduledLead, today, shift, storedLead, leads, setLeadId]);
+
   const actorName = isKitchen ? leads.find((l) => l.id === leadId)?.name ?? null : profile?.full_name || null;
   const myLeadId = isKitchen ? leadId : leads.find((l) => l.profile_id && l.profile_id === profile?.id)?.id ?? null;
   const isDirectorRole = profile?.role === 'director';
@@ -278,6 +299,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     isManager: isManagerRole,
     isDirector: isDirectorRole,
     isAdmin,
+    canSchedule: isDirectorRole || isAdmin,
     isKitchen,
     recovering,
     finishRecovery: () => setRecovering(false),

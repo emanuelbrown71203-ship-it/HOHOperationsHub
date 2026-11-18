@@ -4,6 +4,7 @@ import { supabase, errorMessage, isDemo } from '../lib/supabase';
 import { isPlaceholderEmail, passkeyErrorMessage, passkeysSupported, thisDevice, wasCancelled } from '../lib/passkeys';
 import { useConfirm } from '../components/Confirm';
 import { ROLE_LABELS } from '../lib/types';
+import NotificationsCard from '../components/NotificationsCard';
 import Icon from '../components/Icon';
 
 const THEMES: { key: ThemeChoice; label: string; hint: string }[] = [
@@ -93,6 +94,8 @@ export default function Account() {
           <button className="btn btn-primary" disabled={busy || name.trim() === profile?.full_name}>Save name</button>
         </form>
       )}
+
+      <NotificationsCard />
 
       <PasskeysCard />
 

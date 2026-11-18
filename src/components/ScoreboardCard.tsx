@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { formatDay } from '../lib/dates';
-import { fmtAvg, pct, statsFor, useScores } from '../lib/useScores';
+import { fmtAvg, pct, statsFor, streakFor, useScores } from '../lib/useScores';
 import { Delta, Meter } from './ScoreCharts';
 import Stars from './Stars';
 import Icon from './Icon';
@@ -15,7 +15,7 @@ export default function ScoreboardCard() {
   const current = { date: today, shift };
   const store = statsFor(null, records, shifts, '30d', today, current);
   const ranked = leads
-    .map((lead) => ({ lead, s: statsFor(lead.id, records, shifts, '30d', today, current) }))
+    .map((lead) => ({ lead, s: statsFor(lead.id, records, shifts, '30d', today, current), streak: streakFor(lead.id, records) }))
     .filter((r) => r.s.count > 0)
     .sort((a, b) => (b.s.avg ?? 0) - (a.s.avg ?? 0) || b.s.count - a.s.count || a.lead.name.localeCompare(b.lead.name));
   const top = ranked.slice(0, SHOWN);
@@ -56,7 +56,7 @@ export default function ScoreboardCard() {
               <p className="muted scoreboard-empty">No shifts rated in the last 30 days.</p>
             ) : (
               <ol className="meter-list scoreboard-list">
-                {top.map(({ lead, s }, i) => (
+                {top.map(({ lead, s, streak }, i) => (
                   <li key={lead.id}>
                     <Link to={`/scores/${lead.id}`} className="meter-row scoreboard-row">
                       <span className="rank">{i + 1}</span>
@@ -65,6 +65,7 @@ export default function ScoreboardCard() {
                         <strong>{lead.name}</strong>
                         <small>
                           {s.count} rating{s.count === 1 ? '' : 's'}
+                          {streak >= 3 && <span className="streak"><Icon name="flame" size={12} /> {streak} in a row at 4+</span>}
                           {s.avg !== null && s.avg < 3 && s.count >= 3 && (
                             <span className="flag"><Icon name="alert" size={12} /> Needs attention</span>
                           )}

@@ -62,14 +62,14 @@ export default function Notes() {
     <div className="page sec-notes">
       <div className="page-head">
         <div className="page-title">
-          <span className="page-icon"><Icon name="note" size={22} /></span>
-          <h1>Kitchen Notes</h1>
+          <span className="page-icon"><Icon name="wrench" size={22} /></span>
+          <h1>Equipment Issues</h1>
         </div>
         <button className="btn btn-primary" onClick={() => setParam('new', '1')}>
-          <Icon name="plus" size={18} /> New note
+          <Icon name="plus" size={18} /> Report an issue
         </button>
       </div>
-      <p className="muted lede">Something broken or needs attention? Leave a note. It stays pinned on Home until someone marks it fixed.</p>
+      <p className="muted lede">Something broken, leaking or not working right? Report it here. It stays on the list until someone marks it fixed, so nothing gets forgotten.</p>
 
       {loading ? (
         <div className="spinner" />
@@ -90,7 +90,7 @@ export default function Notes() {
 
           <section className="stack">
             <h2 className="section-title">Equipment</h2>
-            <p className="muted small">Tap anything to see its notes or add one.</p>
+            <p className="muted small">Tap a piece of equipment to see its issues or report a new one.</p>
             {categories.map(([cat, list]) => (
               <div key={cat} className="equip-group">
                 <span className="equip-cat"><Icon name={categoryIcon(cat)} size={15} /> {cat}</span>
@@ -155,11 +155,11 @@ export function NoteCard({ note, equipmentName, onResolve, onChanged, compact }:
   const confirm = useConfirm();
   const canDelete = !compact && onChanged && (note.user_id === session?.user.id || isManager);
   async function remove() {
-    if (!(await confirm({ title: 'Delete this note?', body: 'Use "Mark fixed" instead if the problem was solved, so there is a record.', confirmLabel: 'Delete', danger: true }))) return;
+    if (!(await confirm({ title: 'Delete this report?', body: 'Use "Mark fixed" instead if the problem was solved, so there is a record.', confirmLabel: 'Delete', danger: true }))) return;
     const { error } = await supabase.from('equipment_logs').delete().eq('id', note.id);
     if (error) return toast(errorMessage(error), 'error');
     if (note.photo_path) await removeFiles([note.photo_path]);
-    toast('Note deleted');
+    toast('Report deleted');
     onChanged?.();
   }
   return (
@@ -174,7 +174,7 @@ export function NoteCard({ note, equipmentName, onResolve, onChanged, compact }:
       <div className="note-foot">
         <span className="muted small">{note.performed_by_name} · {note.shift} shift</span>
         <div className="row-gap">
-          {canDelete && <button className="icon-btn sm-lg" onClick={remove} aria-label="Delete note"><Icon name="trash" size={16} /></button>}
+          {canDelete && <button className="icon-btn sm-lg" onClick={remove} aria-label="Delete report"><Icon name="trash" size={16} /></button>}
           {onResolve && note.status === 'open' && <button className="btn btn-sm btn-fix" onClick={onResolve}><Icon name="done" size={16} /> Mark fixed</button>}
         </div>
       </div>
@@ -204,7 +204,7 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
   }, [photo]);
 
   async function save() {
-    if (!equipmentId) return toast('Choose what the note is about', 'error');
+    if (!equipmentId) return toast('Choose which equipment has the problem', 'error');
     if (!text.trim()) return toast("Describe what's wrong", 'error');
     if (!ensureActor()) return;
     setSaving(true);
@@ -220,7 +220,7 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
         lead_id: actorLeadId,
       });
       if (error) throw error;
-      toast('Note posted');
+      toast('Issue reported');
       onSaved();
       onClose();
     } catch (e) {
@@ -231,7 +231,7 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
   }
 
   return (
-    <Modal title="New kitchen note" onClose={onClose}>
+    <Modal title="Report an equipment issue" onClose={onClose}>
       <label className="field">
         <span>What's it about?</span>
         <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
@@ -239,7 +239,7 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
         </select>
       </label>
       <label className="field">
-        <span>Note</span>
+        <span>What’s wrong?</span>
         <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Fryer 3 won't come up to temp. Called the tech, coming Tuesday." autoFocus />
       </label>
       <div className="field">
@@ -250,7 +250,7 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
           {photo && <button className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>Remove</button>}
         </div>
       </div>
-      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Posting…' : 'Post note'}</button>
+      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Sending…' : 'Report issue'}</button>
       <p className="muted small center">{shift} shift · {actorName ? `Posted as ${actorName}` : 'Choose the Shift Lead first'}</p>
     </Modal>
   );
@@ -259,10 +259,10 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
 function EquipmentModal({ equipment, notes, onClose, onAdd, onResolve, onChanged }: { equipment: Equipment; notes: EquipmentLog[]; onClose: () => void; onAdd: () => void; onResolve: (n: EquipmentLog) => void; onChanged: () => void }) {
   return (
     <Modal title={equipment.name} onClose={onClose}>
-      <button className="btn btn-primary btn-block" onClick={onAdd}><Icon name="plus" size={18} /> Add a note about {equipment.name}</button>
-      <h3>Notes ({notes.length})</h3>
+      <button className="btn btn-primary btn-block" onClick={onAdd}><Icon name="plus" size={18} /> Report an issue with {equipment.name}</button>
+      <h3>Issues ({notes.length})</h3>
       {notes.length === 0 ? (
-        <p className="muted">No notes in the last 60 days.</p>
+        <p className="muted">No issues in the last 60 days.</p>
       ) : (
         <div className="note-thread">
           {notes.map((n) => <NoteCard key={n.id} note={n} equipmentName={equipment.name} onResolve={() => onResolve(n)} onChanged={onChanged} />)}

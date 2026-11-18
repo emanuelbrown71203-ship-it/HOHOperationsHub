@@ -14,11 +14,15 @@ import More from './pages/More';
 import Scores from './pages/Scores';
 import LeadScore from './pages/LeadScore';
 import Setup from './pages/Setup';
+import Schedule from './pages/Schedule';
+import Fryers from './pages/Fryers';
+import Training from './pages/Training';
+import Report from './pages/Report';
 import Account from './pages/Account';
 import ResetPassword from './pages/ResetPassword';
 
 export default function App() {
-  const { session, profile, loading, isAdmin, recovering, canViewScores } = useApp();
+  const { session, profile, loading, isAdmin, canSchedule, recovering, canViewScores } = useApp();
 
   if (loading) {
     return <div className="center-screen"><div className="spinner" aria-label="Loading" /></div>;
@@ -39,6 +43,10 @@ export default function App() {
         <Route path="/equipment" element={<Navigate to="/notes" replace />} />
         <Route path="/positions/:id" element={<PositionDetail />} />
         <Route path="/more" element={<More />} />
+        <Route path="/schedule" element={<Schedule />} />
+        <Route path="/fryers" element={<Fryers />} />
+        <Route path="/training" element={<Training />} />
+        <Route path="/report" element={canSchedule ? <Report /> : <Navigate to="/" replace />} />
         <Route path="/scores" element={canViewScores ? <Scores /> : <Navigate to="/" replace />} />
         <Route path="/scores/:id" element={canViewScores ? <LeadScore /> : <Navigate to="/" replace />} />
         <Route path="/setup" element={isAdmin ? <Setup /> : <Navigate to="/" replace />} />

@@ -41,6 +41,8 @@ export interface ChecklistItem {
   label: string;
   sort_order: number;
   active: boolean;
+  /** The task can only be checked off with a photo. */
+  requires_photo: boolean;
 }
 
 export interface ChecklistCheck {
@@ -52,6 +54,7 @@ export interface ChecklistCheck {
   user_id: string | null;
   lead_id: string | null;
   performed_by_name: string;
+  photo_path: string | null;
 }
 
 export interface WasteItem {
@@ -144,6 +147,9 @@ export interface ShiftRating {
   comment: string | null;
   rated_by_name: string;
   rated_at: string;
+  /** Exact average of the category stars (rating is this, rounded). */
+  score: number | null;
+  category_scores: Record<string, number> | null;
 }
 
 /** One row of the lead score record (the lead_rating_history view). */
@@ -159,6 +165,46 @@ export interface RatingRecord {
   rated_at: string;
   handoff_submitted: boolean;
   photo_count: number;
+  /** Exact average of the category stars; equals rating for single-star ratings. */
+  score: number;
+  category_scores: Record<string, number> | null;
+}
+
+/** Who is scheduled to lead a shift. */
+export interface ScheduleEntry {
+  id: string;
+  shift_date: string;
+  shift: string;
+  lead_id: string;
+  created_by_name: string;
+  updated_at: string;
+  notified_at: string | null;
+  reminded_at: string | null;
+}
+
+export interface LeadOfMonth {
+  lead_id: string;
+  name: string;
+  month: string;
+  ratings: number | null;
+  avg: number | null;
+}
+
+/** Someone on the team list for "Who's Trained" (no account needed). */
+export interface TeamMember {
+  id: string;
+  name: string;
+  active: boolean;
+  sort_order: number;
+}
+
+export interface PositionSignoff {
+  id: string;
+  member_id: string;
+  position_id: string;
+  status: 'training' | 'trained';
+  created_by_name: string;
+  updated_at: string;
 }
 
 export type ScoresVisibility = 'directors' | 'managers' | 'everyone';
@@ -207,6 +253,12 @@ export interface AppSettings {
   waste_reasons: string[];
   waste_units: string[];
   scores_visibility: ScoresVisibility;
+  /** What the incoming shift rates, each 1 to 5 stars. Empty = one overall rating. */
+  rating_categories: string[];
+  fryer_filter_hours: number;
+  fryer_oil_days: number;
+  notifications_enabled: boolean;
+  timezone: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -218,6 +270,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   waste_reasons: ['Overcooked / burnt', 'Hold time expired', 'Dropped / contaminated', 'Overproduction', 'Quality issue', 'Customer return', 'Other'],
   waste_units: ['each', 'lbs', 'orders', 'pans', 'bags', 'trays', 'cases'],
   scores_visibility: 'directors',
+  rating_categories: ['Stocked', 'Clean', 'Prepped', 'Organized'],
+  fryer_filter_hours: 24,
+  fryer_oil_days: 7,
+  notifications_enabled: false,
+  timezone: 'America/New_York',
 };
 
 const LEGACY_LOG_LABELS: Record<string, string> = {
@@ -228,6 +285,6 @@ const LEGACY_LOG_LABELS: Record<string, string> = {
 };
 
 export function logTypeLabel(type: string): string {
-  if (type === 'issue') return 'Note';
+  if (type === 'issue') return 'Issue';
   return LEGACY_LOG_LABELS[type] ?? type;
 }

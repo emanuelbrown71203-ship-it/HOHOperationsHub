@@ -9,6 +9,8 @@ import Ring from '../components/Ring';
 import DateNav from '../components/DateNav';
 import Icon from '../components/Icon';
 import { useConfirm } from '../components/Confirm';
+import { PhotoPicker, PhotoThumb } from '../components/Photo';
+import { removeFiles, uploadFile } from '../lib/files';
 
 export default function ChecklistDetail() {
   const { id } = useParams();
@@ -21,6 +23,24 @@ export default function ChecklistDetail() {
 
   const p = progress.find((x) => x.template.id === id);
 
+  /** Photo tasks: upload the picture, then check the task off with it attached. */
+  async function checkWithPhoto(item: ChecklistItem, file: File) {
+    if (busyItem || !ensureActor()) return;
+    setBusyItem(item.id);
+    try {
+      const { path } = await uploadFile(`checklists/${p?.period ?? date}`, file);
+      const { error } = await supabase.from('checklist_checks').insert({ template_id: item.template_id, item_id: item.id, check_date: p?.period ?? date, lead_id: actorLeadId, photo_path: path });
+      if (error) {
+        await removeFiles([path]);
+        throw error;
+      }
+    } catch (e) {
+      toast((e as { code?: string }).code === '23505' ? 'Already checked off' : errorMessage(e), 'error');
+    }
+    setBusyItem(null);
+    reload();
+  }
+
   async function toggle(item: ChecklistItem, check: ChecklistCheck | undefined) {
     if (busyItem) return;
     if (check) {
@@ -29,11 +49,12 @@ export default function ChecklistDetail() {
         toast(`Only ${check.performed_by_name}'s account or a lead can uncheck this.`, 'error');
         return;
       }
-      if (!(await confirm({ title: 'Uncheck this task?', body: `"${item.label}" was checked off by ${check.performed_by_name}.`, confirmLabel: 'Uncheck' }))) return;
+      if (!(await confirm({ title: 'Uncheck this task?', body: `"${item.label}" was checked off by ${check.performed_by_name}.${check.photo_path ? ' Its photo is removed too.' : ''}`, confirmLabel: 'Uncheck' }))) return;
       setBusyItem(item.id);
       const { error } = await supabase.from('checklist_checks').delete().eq('id', check.id);
       setBusyItem(null);
       if (error) toast(errorMessage(error), 'error');
+      else if (check.photo_path) removeFiles([check.photo_path]);
     } else {
       if (!ensureActor()) return;
       setBusyItem(item.id);
@@ -88,7 +109,17 @@ export default function ChecklistDetail() {
           {p.items.map((item) => {
             const check = p.checks.get(item.id);
             return (
-              <li key={item.id}>
+              <li key={item.id} className={item.requires_photo ? 'photo-task' : ''}>
+                {item.requires_photo && !check ? (
+                  <div className="check-row needs-photo">
+                    <span className="checkbox"><Icon name="camera" size={16} /></span>
+                    <span className="check-text">
+                      <span className="check-label">{item.label}</span>
+                      <span className="check-meta photo-note">Photo required</span>
+                    </span>
+                    <PhotoPicker multiple={false} busy={busyItem === item.id} onFiles={(f) => checkWithPhoto(item, f[0])} className="btn btn-primary btn-sm">Take photo</PhotoPicker>
+                  </div>
+                ) : (
                 <button
                   className={`check-row ${check ? 'checked' : ''}`}
                   onClick={() => toggle(item, check)}
@@ -105,6 +136,8 @@ export default function ChecklistDetail() {
                     )}
                   </span>
                 </button>
+                )}
+                {check?.photo_path && <div className="check-photo"><PhotoThumb path={check.photo_path} label={item.label} /></div>}
               </li>
             );
           })}

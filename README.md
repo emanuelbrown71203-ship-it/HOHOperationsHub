@@ -14,6 +14,15 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 - **Waste log**: quick-pick items, reasons and units, with summaries and CSV export.
 - **Setup** (admins only): store name, shift start times, waste reasons and units, HOH Leads, checklists, positions, equipment, team accounts and who sees lead scores. No code changes needed.
 - **Passkey sign-in**: people create an account with just their name and sign in with Face ID, a fingerprint or the device passcode. No email address needed.
+- **Shift Lead Schedule**: directors and admins pick who leads each shift (type a new name if they aren't on the list; no account needed). The store tablet selects the scheduled lead by itself and ratings are credited to them.
+- **Ratings by category**: the incoming shift gives separate stars for each category (Stocked, Clean, Prepped, Organized by default; edit them in Setup → Store). The lead's score is the average.
+- **Lead of the Month and streaks**: last month's top-rated lead (3 rated shifts minimum) shows on Home for everyone; streaks count shifts in a row at 4 stars or better.
+- **Monthly Report** (directors and admins): one printable page with scores, handoffs, checklists, waste, equipment and training.
+- **Fryer Tracker**: one tap when a fryer is filtered or gets new oil, with what is due or overdue (intervals in Setup → Equipment).
+- **Who's Trained**: a team list (no accounts needed) against each position: in training or trained.
+- **Photo tasks**: any checklist task can require a photo to check it off.
+- **Equipment Issues**: what used to be "Kitchen Notes"; report something broken and track it until fixed.
+- **Phone notifications**: when an admin turns them on (Setup → Store), "Send schedule to leads" notifies each lead about their own shifts only, and each lead gets a reminder an hour before their shift. A lead needs their own account linked to their name (Setup → HOH Leads) and to turn notifications on in Account; on an iPhone the app must first be added to the Home Screen.
 - **Live updates** across devices, **phone and tablet layouts**, and a light or dark theme per device.
 
 ## Lead scores: how a rating is credited
@@ -88,8 +97,11 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0008_drop_old_rating_columns.sql`: removes two unused rating columns from `shift_handoffs` (run once in the Supabase SQL Editor)
 - `0009_signin_codes.sql`: one-time sign-in codes for setting up a passkey on a new device
 - `0010_admins.sql`: the Admin switch; only admins change Setup, team accounts and who sees lead scores
+- `0011_schedule_categories_fryers_training_push.sql`: Shift Lead schedule, ratings by category, Lead of the Month, photo tasks, Who's Trained, notification subscriptions
+- `0012_shift_reminder_job.sql`: the every-10-minutes job that sends shift reminders (notification keys live in `private.push_config`, never in this repository)
 
 Edge functions:
 
 - `supabase/functions/account`: creates passkey accounts, redeems and makes sign-in codes, and lets admins see how people sign in, remove lost passkeys and delete accounts (Setup → Team)
+- `supabase/functions/notify`: sends phone notifications (schedule posted, shift reminders, test)
 - `supabase/functions/set-password`: lets admins set a temporary password for someone who signs in with email (Setup → Team)

@@ -4,19 +4,20 @@ import { useApp } from '../lib/app';
 import { supabase, errorMessage } from '../lib/supabase';
 import { formatDay } from '../lib/dates';
 import type { RatingRecord } from '../lib/types';
-import { fmtAvg, pct, rangeWindow, statsFor, useScoreRange, useScores, weeklySeries } from '../lib/useScores';
+import { categoryAverages, fmtAvg, pct, rangeWindow, statsFor, streakFor, useScoreRange, useScores, weeklySeries } from '../lib/useScores';
+import { CategoryChips } from './Handoff';
 import { Delta, StarBreakdown, StatTile, TrendChart } from '../components/ScoreCharts';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
 import { useConfirm } from '../components/Confirm';
-import { PERIOD_WORDS, RangeFilter, exportRatings } from './Scores';
+import { CategoryMeters, PERIOD_WORDS, RangeFilter, exportRatings } from './Scores';
 
 export default function LeadScore() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const range = useScoreRange(params);
-  const { today, shift, isDirector, isAdmin, toast } = useApp();
+  const { today, shift, isDirector, isAdmin, toast, settings } = useApp();
   const confirm = useConfirm();
   const { records, shifts, leads, loading, reload } = useScores();
   const [moving, setMoving] = useState<RatingRecord | null>(null);
@@ -37,6 +38,8 @@ export default function LeadScore() {
   const mine = records.filter((r) => r.lead_id === lead.id && (!start || r.shift_date >= start));
   const weeks = weeklySeries(lead.id, records, range, today);
   const period = PERIOD_WORDS[range];
+  const cats = categoryAverages(mine, settings.rating_categories);
+  const streak = streakFor(lead.id, records);
 
   async function removeRating(r: RatingRecord) {
     if (!(await confirm({ title: 'Delete this rating?', body: `${r.rating} star${r.rating > 1 ? 's' : ''} for the ${r.shift} shift on ${formatDay(r.shift_date)}, from ${r.rated_by_name}. The shift can then be rated again.`, confirmLabel: 'Delete rating', danger: true }))) return;
@@ -54,6 +57,7 @@ export default function LeadScore() {
         <div>
           <span className="shift-tag">HOH Lead{!lead.active && ' · hidden'}</span>
           <h1>{lead.name}</h1>
+          {streak >= 3 && <span className="streak"><Icon name="flame" size={14} /> {streak} shifts in a row at 4 stars or better</span>}
         </div>
       </div>
 
@@ -85,6 +89,16 @@ export default function LeadScore() {
         </section>
       </div>
 
+      {cats.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <h2><span className="dot" />By category</h2>
+            <span className="muted small">Where {lead.name} is strong, and what to work on</span>
+          </div>
+          <CategoryMeters cats={cats} />
+        </section>
+      )}
+
       <section className="card">
         <div className="card-head">
           <h2><span className="dot" />Every rating</h2>
@@ -103,8 +117,9 @@ export default function LeadScore() {
                 <div className="rating-main">
                   <div className="row-gap wrap">
                     <Stars value={r.rating} size="sm" />
-                    <span className="small"><strong>{RATING_WORDS[r.rating]}</strong></span>
+                    <span className="small"><strong>{RATING_WORDS[r.rating]}</strong>{r.category_scores ? ` · ${r.score.toFixed(1)}` : ''}</span>
                   </div>
+                  <CategoryChips scores={r.category_scores} />
                   {r.comment && <p className="rated-comment">“{r.comment}”</p>}
                   <span className="muted small">
                     Rated by {r.rated_by_name} · {r.handoff_submitted ? `handoff submitted, ${r.photo_count} photo${r.photo_count === 1 ? '' : 's'}` : 'handoff not submitted'}
