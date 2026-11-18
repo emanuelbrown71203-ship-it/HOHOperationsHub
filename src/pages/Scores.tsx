@@ -78,7 +78,7 @@ export default function Scores() {
       <p className="muted lede">
         The incoming shift rates the previous shift's setup{settings.rating_categories.length ? ` on ${settings.rating_categories.join(', ').toLowerCase()}` : ''}, 1 to 5 stars each. Each rating is credited to the HOH Lead who ran that shift.
         Visible to: <strong>{SCORES_VISIBILITY_LABELS[settings.scores_visibility]}</strong>
-        {isAdmin && <> · <Link to="/setup?tab=store">change</Link></>}
+        {isAdmin && <> · <Link to="/setup?tab=scores">change</Link></>}
       </p>
 
       <div className="filter-row">

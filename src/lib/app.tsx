@@ -80,7 +80,7 @@ interface AppState {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
 
-  /** Whether this person may see lead scores (admins and directors always; admins can widen it in Setup → Store). */
+  /** Whether this person may see lead scores (admins and directors always; admins can widen it in Setup → Lead scores). */
   canViewScores: boolean;
   /** The HOH Lead this device or account acts as: the chosen Shift Lead, or the lead linked to this account. */
   myLeadId: string | null;

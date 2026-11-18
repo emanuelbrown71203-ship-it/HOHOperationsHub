@@ -18,6 +18,7 @@ import Schedule from './pages/Schedule';
 import Fryers from './pages/Fryers';
 import Training from './pages/Training';
 import Report from './pages/Report';
+import Kitchen from './pages/Kitchen';
 import Account from './pages/Account';
 import ResetPassword from './pages/ResetPassword';
 
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/positions/:id" element={<PositionDetail />} />
         <Route path="/more" element={<More />} />
         <Route path="/schedule" element={<Schedule />} />
+        <Route path="/kitchen" element={<Kitchen />} />
         <Route path="/fryers" element={<Fryers />} />
         <Route path="/training" element={<Training />} />
         <Route path="/report" element={canSchedule ? <Report /> : <Navigate to="/" replace />} />

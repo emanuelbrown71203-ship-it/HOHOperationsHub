@@ -8,10 +8,15 @@ import Icon from './Icon';
 
 const SHOWN = 5;
 
+type ScoreData = Pick<ReturnType<typeof useScores>, 'records' | 'shifts' | 'leads' | 'loading'>;
+
 /** The lead score record, first thing on Home for the people allowed to see it. */
 export default function ScoreboardCard() {
+  return <ScoreboardBody {...useScores()} />;
+}
+
+export function ScoreboardBody({ records, shifts, leads, loading }: ScoreData) {
   const { today, shift } = useApp();
-  const { records, shifts, leads, loading } = useScores();
   const current = { date: today, shift };
   const store = statsFor(null, records, shifts, '30d', today, current);
   const ranked = leads

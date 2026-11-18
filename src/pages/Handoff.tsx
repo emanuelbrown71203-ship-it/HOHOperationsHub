@@ -61,7 +61,9 @@ export default function Handoff() {
   const prev = previousShift(today, shift, shiftNames);
   const prevHandoff = byKey.get(key(prev.date, prev.shift));
   const mine = byKey.get(key(today, shift));
-  const history = handoffs.filter((h) => !(h.shift_date === today && h.shift === shift));
+  const history = handoffs.filter((h) => !(h.shift_date === today && h.shift === shift) && !(h.shift_date === prev.date && h.shift === prev.shift));
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? history : history.slice(0, 6);
 
   return (
     <div className="page sec-handoff">
@@ -83,9 +85,12 @@ export default function Handoff() {
               <div className="empty">No earlier handoffs yet.</div>
             ) : (
               <div className="handoff-history">
-                {history.map((h) => (
+                {shown.map((h) => (
                   <HistoryRow key={h.id} handoff={h} rating={ratingFor(h)} photos={photosFor(h)} tone={shiftTone(shiftNames, h.shift)} />
                 ))}
+                {history.length > shown.length && (
+                  <button className="btn btn-ghost btn-block" onClick={() => setShowAll(true)}>Show all {history.length} from the last two weeks</button>
+                )}
               </div>
             )}
           </section>

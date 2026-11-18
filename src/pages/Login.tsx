@@ -144,7 +144,7 @@ export default function Login() {
         ) : mode === 'code' ? (
           <form className="auth-actions" onSubmit={useCode}>
             <h2 className="auth-step">Use a sign-in code</h2>
-            <p className="muted small">An admin can make you a one-time code in Setup → Team. Use it to set up a passkey on a new device.</p>
+            <p className="muted small">An admin can make you a one-time code in Setup → People. Use it to set up a passkey on a new device.</p>
             <label className="field">
               <span>Sign-in code</span>
               <input

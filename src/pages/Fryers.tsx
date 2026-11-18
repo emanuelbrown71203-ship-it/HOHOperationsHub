@@ -100,13 +100,13 @@ export default function Fryers() {
       </div>
       <p className="muted lede">
         Tap a button when a fryer is filtered or its oil is changed. Filter every {settings.fryer_filter_hours} hours, change oil every {settings.fryer_oil_days} days.
-        {isAdmin && <> <Link to="/setup?tab=equipment">Change these in Setup → Equipment.</Link></>}
+        {isAdmin && <> <Link to="/setup?tab=equipment">Change these in Setup → Kitchen.</Link></>}
       </p>
 
       {loading ? (
         <div className="spinner" />
       ) : fryers.length === 0 ? (
-        <div className="empty">No fryers yet. {isAdmin ? <Link to="/setup?tab=equipment">Add equipment in the “Fryer” category in Setup.</Link> : 'An admin can add them in Setup → Equipment.'}</div>
+        <div className="empty">No fryers yet. {isAdmin ? <Link to="/setup?tab=equipment">Add equipment in the “Fryer” category in Setup.</Link> : 'An admin can add them in Setup → Kitchen.'}</div>
       ) : (
         <>
           <div className="fryer-grid">

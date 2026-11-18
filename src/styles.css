@@ -1228,3 +1228,74 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
   .card, .stat-tile { box-shadow: none !important; break-inside: avoid; }
   .page { gap: 12px; max-width: none; }
 }
+
+/* ================= Reorganized navigation and Home (v8) ================= */
+@media (min-width: 900px) {
+  .sidenav { gap: 2px; padding: 14px 12px; }
+  .navlink { padding: 5px 10px 5px 6px; font-size: 0.95rem; gap: 10px; }
+  .navlink .icon { width: 32px; height: 32px; padding: 7px; border-radius: 10px; }
+  .nav-group { display: flex; flex-direction: column; gap: 2px; margin-top: 10px; }
+  .nav-group-title { padding: 0 10px 2px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .navlink-account { margin-top: auto; padding-top: 12px; }
+}
+.stack-sm { display: flex; flex-direction: column; gap: 8px; }
+.stack-sm .section-title { margin: 4px 0 0; }
+.tab-hint { margin: -8px 0 0 6px; }
+.dash-grid > :only-child { grid-column: 1 / -1; }
+
+/* Greeting + view switch (directors and admins) */
+.home-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.home-head h1 { font-size: clamp(1.5rem, 4vw, 2rem); }
+.home-switch { flex: 0 1 auto; --sec: var(--brand); }
+.home-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+@media (max-width: 600px) { .home-switch { width: 100%; } }
+
+/* "This shift" to-do list and "Needs attention" */
+.todo-count { font-size: 0.82rem; font-weight: 800; color: var(--muted); padding: 3px 10px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
+.todo-count.all { background: var(--ok-soft); color: var(--ok); }
+.todo-bar { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; margin: -4px 0 12px; }
+.todo-bar span { display: block; height: 100%; background: var(--c-check); border-radius: 3px; transition: width 0.3s; }
+.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.todo-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); min-height: 60px; transition: background 0.15s, border-color 0.15s; }
+.todo-row:hover { background: var(--surface-2); }
+.todo-row > .icon:last-child { color: var(--muted); flex: none; }
+.todo-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; flex: none; background: color-mix(in srgb, var(--sec) 14%, transparent); color: var(--sec); }
+.todo-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.todo-text strong { font-weight: 750; line-height: 1.25; }
+.todo-text small { color: var(--muted); font-size: 0.84rem; line-height: 1.3; overflow-wrap: anywhere; }
+.todo-row.done { background: var(--surface-2); border-color: transparent; }
+.todo-row.done .todo-icon { background: var(--ok); color: #fff; }
+.todo-row.done strong { color: var(--muted); font-weight: 650; }
+.todo-row.attn-danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.todo-row.attn-danger .todo-icon { background: var(--danger-soft); color: var(--danger); }
+.todo-row.attn-warn .todo-icon { background: var(--warn-soft); color: var(--warn); }
+
+/* Today, shift by shift (overview) */
+.today-shifts { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.today-shifts li { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); }
+.today-shift-name { display: inline-flex; align-items: center; gap: 8px; font-weight: 850; min-width: 54px; }
+.today-shift-name .shift-dot { width: 12px; height: 12px; border-radius: 50%; background: linear-gradient(135deg, var(--tone-a), var(--tone-b)); }
+.today-shift-body { display: flex; flex-direction: column; min-width: 0; }
+.today-shift-body small { font-size: 0.84rem; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.today-shift-body .pill { margin-left: 0; }
+.today-lead.mine { padding: 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--c-scores) 12%, transparent); color: var(--ink); }
+
+/* A lead's own score */
+.my-score { display: flex; flex-direction: column; gap: 6px; color: var(--ink); }
+.my-score .eyebrow { margin: 0; }
+.my-score-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.my-score .stat-value { font-size: 2.2rem; }
+.my-score-latest { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.86rem; color: var(--muted); }
+
+/* Kitchen hub */
+.hub-list { display: flex; flex-direction: column; gap: 10px; }
+.hub-tile { display: flex; align-items: center; gap: 14px; padding: 18px 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--ink); }
+.hub-tile .grow { display: flex; flex-direction: column; min-width: 0; }
+.hub-tile small { color: var(--muted); }
+.hub-tile .kpi-icon { width: 46px; height: 46px; }
+.hub-tile.is-alert { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.hub-status { font-size: 0.82rem; font-weight: 800; white-space: nowrap; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.hub-status.ok { background: var(--ok-soft); color: var(--ok); }
+.hub-status.bad { background: var(--danger-soft); color: var(--danger); }
+.stack:empty { display: none; }
+@media (min-width: 820px) { .dash-grid:has(> .stack:empty) { grid-template-columns: 1fr; } }

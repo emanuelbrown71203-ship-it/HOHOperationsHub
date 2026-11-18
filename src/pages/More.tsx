@@ -1,31 +1,43 @@
 import { Link } from 'react-router-dom';
 import { useApp } from '../lib/app';
-import Icon, { type IconName } from '../components/Icon';
+import { navGroups, tabItems } from '../lib/nav';
+import Icon from '../components/Icon';
 
+/** Everything that isn't in the phone tab bar, grouped the same way as the menu. */
 export default function More() {
-  const { isAdmin, canSchedule, profile, canViewScores } = useApp();
-  const items: { to: string; label: string; hint: string; icon: IconName; section: string }[] = [
-    ...(canViewScores ? [{ to: '/scores', label: 'Lead Scores', hint: 'Star ratings and performance for each HOH Lead', icon: 'trophy' as IconName, section: 'scores' }] : []),
-    ...(canSchedule ? [{ to: '/report', label: 'Monthly Report', hint: 'One printable page: scores, handoffs, waste, equipment and training', icon: 'file' as IconName, section: 'scores' }] : []),
-    { to: '/fryers', label: 'Fryer Tracker', hint: 'Log when each fryer is filtered or gets new oil, and see what is due', icon: 'flame', section: 'fryers' },
-    { to: '/training', label: 'Who’s Trained', hint: 'Which team members are trained on each position', icon: 'users', section: 'training' },
-    { to: '/waste', label: 'Waste Log', hint: 'Record food that was thrown away, and why', icon: 'trash', section: 'waste' },
-    { to: '/notes', label: 'Equipment Issues', hint: 'Report something broken and see what is still waiting to be fixed', icon: 'wrench', section: 'notes' },
-    ...(isAdmin ? [{ to: '/setup', label: 'Setup', hint: 'Team accounts, leads, checklists, positions, equipment, store settings', icon: 'gear' as IconName, section: 'setup' }] : []),
-    { to: '/account', label: 'Account', hint: `${profile?.full_name ?? ''} · notifications, theme, sign out`, icon: 'user', section: 'home' },
-  ];
+  const { isAdmin, canSchedule, canViewScores, profile } = useApp();
+  const ctx = { isAdmin, canSchedule, canViewScores };
+  const inTabs = new Set(tabItems(ctx).map((t) => t.to));
+  const groups = navGroups(ctx)
+    .map((g) => ({ ...g, items: g.items.filter((i) => !inTabs.has(i.to)) }))
+    .filter((g) => g.items.length > 0);
   return (
     <div className="page narrow">
       <h1>More</h1>
-      <div className="more-list">
-        {items.map((i) => (
-          <Link key={i.to} to={i.to} className={`more-item sec-${i.section}`}>
-            <span className="kpi-icon"><Icon name={i.icon} size={20} /></span>
-            <span className="grow"><strong>{i.label}</strong><small className="muted">{i.hint}</small></span>
+      {groups.map((g) => (
+        <section key={g.key} className="stack-sm">
+          <h2 className="section-title">{g.title}</h2>
+          <div className="more-list">
+            {g.items.map((i) => (
+              <Link key={i.to} to={i.to} className={`more-item sec-${i.section}`}>
+                <span className="kpi-icon"><Icon name={i.icon} size={20} /></span>
+                <span className="grow"><strong>{i.label}</strong><small className="muted">{i.hint}</small></span>
+                <Icon name="chevron" />
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
+      <section className="stack-sm">
+        <h2 className="section-title">You</h2>
+        <div className="more-list">
+          <Link to="/account" className="more-item sec-home">
+            <span className="kpi-icon"><Icon name="user" size={20} /></span>
+            <span className="grow"><strong>Account</strong><small className="muted">{profile?.full_name ?? ''} · notifications, passkeys, theme, sign out</small></span>
             <Icon name="chevron" />
           </Link>
-        ))}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

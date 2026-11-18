@@ -19,7 +19,7 @@ export default function Pending() {
         <PasskeyNudge />
         <p>
           Thanks{profile?.full_name ? `, ${profile.full_name}` : ''}! Your account{email && !isPlaceholderEmail(email) ? ` (${email})` : ''} has been created.
-          An admin needs to approve it in <strong>Setup → Team</strong> before you can use the app.
+          An admin needs to approve it in <strong>Setup → People</strong> before you can use the app.
         </p>
         <button className="btn btn-primary btn-block" onClick={() => refreshProfile()}>
           Check again

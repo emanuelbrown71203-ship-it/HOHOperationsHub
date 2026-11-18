@@ -31,7 +31,7 @@ export default function Checklists() {
         {loading ? (
           <div className="spinner" />
         ) : progress.length === 0 ? (
-          <div className="empty">No HOH Lead checklists yet. An admin can add them in Setup → Lead checklists.</div>
+          <div className="empty">No HOH Lead checklists yet. An admin can add them in Setup → Checklists.</div>
         ) : (
           <div className="card-list">
             {progress.map((p) => {

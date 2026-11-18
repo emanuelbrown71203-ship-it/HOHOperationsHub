@@ -25,6 +25,13 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 - **Phone notifications**: when an admin turns them on (Setup → Store), "Send schedule to leads" notifies each lead about their own shifts only, and each lead gets a reminder an hour before their shift. A lead needs their own account linked to their name (Setup → HOH Leads) and to turn notifications on in Account; on an iPhone the app must first be added to the Home Screen.
 - **Live updates** across devices, **phone and tablet layouts**, and a light or dark theme per device.
 
+## How the app is organized
+
+- **Running the shift** (HOH Leads, team members, the store tablet): Home is a "This shift" to-do list: rate the last shift, this shift's checklists, fryers that are due, and the handoff before you leave. The phone tab bar is Home, Checklists, Handoff, Kitchen (fryers, waste, equipment issues) and More.
+- **Managing** (directors and admins): Home opens on an **Overview**: the lead score record, a "Needs attention" list (unscheduled shifts, overdue fryers, open equipment issues, handoffs not submitted, shifts not rated, low scores, accounts waiting for approval) and today shift by shift. A switch flips to **Today's shift** when they're running a shift themselves. The phone tab bar is Home, Scores, Schedule, Kitchen and More.
+- The menu is grouped (Performance, Team, Run the shift, Kitchen, Admin), in the order that fits the person's role.
+- **Setup** tabs: Store, People, HOH Leads, Lead scores, Checklists, Positions, Kitchen.
+
 ## Lead scores: how a rating is credited
 
 1. When the shared kitchen device picks the **Shift Lead**, the app records that lead as running the shift. (A lead who submits the handoff from their own linked account is recorded too.)
@@ -53,18 +60,18 @@ The database fills in the name itself, so it can't be faked or edited afterward.
 | Director | All of the above, plus the **lead score record** (always visible) and moving or deleting ratings |
 | Shared Kitchen Device | Same as Team Member, but credits the selected Shift Lead |
 
-**Admin** is a switch on top of any role (Setup → Team). Admins configure the app: everything in **Setup**, team accounts (approve, change roles, sign-in codes, delete accounts) and who can see lead scores. A Director without the Admin switch can't change the setup. There is always at least one admin, and the very first account becomes Director + Admin automatically.
+**Admin** is a switch on top of any role (Setup → People). Admins configure the app: everything in **Setup**, team accounts (approve, change roles, sign-in codes, delete accounts) and who can see lead scores. A Director without the Admin switch can't change the setup. There is always at least one admin, and the very first account becomes Director + Admin automatically.
 
 ## First-time setup (do this once)
 
 1. **Passkeys are switched on** in Supabase (Authentication → Passkeys), with `hoh-operations-hub.vercel.app` as the passkey address.
 2. **Create your account first** (just your name, then save a passkey). The very first account becomes **Director + Admin** automatically.
 3. **Add your HOH Leads** in **Setup → HOH Leads**.
-4. **Create the store tablet's login.** On the tablet, create an account named something like "Store Kitchen" and save a passkey, then set its role to **Shared Kitchen Device** in **Setup → Team**.
-5. **Approve everyone else** in **Setup → Team** as they sign up, and switch on **Admin** for anyone else who should configure the app.
+4. **Create the store tablet's login.** On the tablet, create an account named something like "Store Kitchen" and save a passkey, then set its role to **Shared Kitchen Device** in **Setup → People**.
+5. **Approve everyone else** in **Setup → People** as they sign up, and switch on **Admin** for anyone else who should configure the app.
 6. Edit the starter checklists, equipment and waste items in **Setup** to match your kitchen.
 
-For a lost or new phone, an admin makes a one-time **sign-in code** in Setup → Team; the person enters it on the new device and saves a new passkey there. Signing in with an email and password still works for accounts that have one.
+For a lost or new phone, an admin makes a one-time **sign-in code** in Setup → People; the person enters it on the new device and saves a new passkey there. Signing in with an email and password still works for accounts that have one.
 
 ## Running locally
 
@@ -102,6 +109,6 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 
 Edge functions:
 
-- `supabase/functions/account`: creates passkey accounts, redeems and makes sign-in codes, and lets admins see how people sign in, remove lost passkeys and delete accounts (Setup → Team)
+- `supabase/functions/account`: creates passkey accounts, redeems and makes sign-in codes, and lets admins see how people sign in, remove lost passkeys and delete accounts (Setup → People)
 - `supabase/functions/notify`: sends phone notifications (schedule posted, shift reminders, test)
-- `supabase/functions/set-password`: lets admins set a temporary password for someone who signs in with email (Setup → Team)
+- `supabase/functions/set-password`: lets admins set a temporary password for someone who signs in with email (Setup → People)

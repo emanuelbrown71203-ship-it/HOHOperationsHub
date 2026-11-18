@@ -24,21 +24,24 @@ import { usePositions } from '../lib/usePositions';
 import { accountAction } from '../lib/passkeys';
 import { removeFiles, uploadFile } from '../lib/files';
 
-type Tab = 'store' | 'leads' | 'checklists' | 'positions' | 'waste' | 'equipment' | 'team';
+type Tab = 'store' | 'scores' | 'leads' | 'checklists' | 'positions' | 'equipment' | 'team';
 
 export default function Setup() {
   const { isAdmin } = useApp();
   const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') as Tab) || 'store';
-  const tabs: [Tab, string][] = [
-    ['store', 'Store'],
-    ['leads', 'HOH Leads'],
-    ['checklists', 'Lead checklists'],
-    ['positions', 'Positions'],
-    ['waste', 'Waste items'],
-    ['equipment', 'Equipment'],
-    ...(isAdmin ? ([['team', 'Team']] as [Tab, string][]) : []),
+  const raw = params.get('tab');
+  const tab = (raw === 'waste' ? 'equipment' : (raw as Tab)) || 'store';
+  // Grouped by what an admin is trying to do; each tab says what's in it.
+  const tabs: [Tab, string, string][] = [
+    ['store', 'Store', 'Name, shift times, phone notifications'],
+    ['team', 'People', 'Team accounts, roles and sign-in'],
+    ['leads', 'HOH Leads', 'Names on the schedule and linked accounts'],
+    ['scores', 'Lead scores', 'Who sees scores and what gets rated'],
+    ['checklists', 'Checklists', 'HOH Lead checklists and photo tasks'],
+    ['positions', 'Positions', 'Printed checklist for each position'],
+    ['equipment', 'Kitchen', 'Equipment, fryer timing, waste options'],
   ];
+  const current = tabs.find((t) => t[0] === tab) ?? tabs[0];
 
   return (
     <div className="page sec-setup">
@@ -54,11 +57,12 @@ export default function Setup() {
           </button>
         ))}
       </div>
+      <p className="muted small tab-hint">{current[2]}</p>
       {tab === 'store' && <StoreEditor />}
+      {tab === 'scores' && <ScoresSettings />}
       {tab === 'leads' && <LeadsEditor />}
       {tab === 'checklists' && <ChecklistsEditor />}
       {tab === 'positions' && <PositionsEditor />}
-      {tab === 'waste' && <WasteItemsEditor />}
       {tab === 'equipment' && <EquipmentEditor />}
       {tab === 'team' && isAdmin && <TeamEditor />}
     </div>
@@ -209,22 +213,36 @@ function StoreEditor() {
 
       <ShiftsEditor />
 
-      <ScoresVisibilityEditor />
+      <NotificationsEditor />
+    </div>
+  );
+}
 
+function ScoresSettings() {
+  const { settings } = useApp();
+  const save = useSaveSettings();
+  return (
+    <div className="setup-grid">
+      <ScoresVisibilityEditor />
       <section className="card">
         <SectionIntro title="What the incoming shift rates">
           Each of these gets its own 1 to 5 stars when a shift rates the setup it walked into. The lead's score is the average. Remove them all to go back to one overall rating.
         </SectionIntro>
         <ListEditor items={settings.rating_categories} noun="category" onChange={(rating_categories) => save({ rating_categories })} />
       </section>
+    </div>
+  );
+}
 
-      <NotificationsEditor />
-
+function WasteOptions() {
+  const { settings } = useApp();
+  const save = useSaveSettings();
+  return (
+    <div className="setup-grid">
       <section className="card">
         <SectionIntro title="Waste reasons">The reason buttons on the Waste Log.</SectionIntro>
         <ListEditor items={settings.waste_reasons} noun="reason" onChange={(waste_reasons) => save({ waste_reasons })} />
       </section>
-
       <section className="card">
         <SectionIntro title="Waste units">Units people can pick when logging waste.</SectionIntro>
         <ListEditor items={settings.waste_units} noun="unit" onChange={(waste_units) => save({ waste_units })} />
@@ -741,6 +759,8 @@ function EquipmentEditor() {
   return (
     <div className="stack">
     <FryerSettings />
+    <WasteItemsEditor />
+    <WasteOptions />
     <section className="card">
       <SectionIntro title="Equipment">The list people pick from when they report an equipment issue. Hide anything you no longer have.</SectionIntro>
       <datalist id="equip-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>

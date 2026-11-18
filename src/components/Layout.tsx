@@ -1,42 +1,28 @@
 import iconUrl from '../assets/icon.svg';
 import { useState, type ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { shiftTone } from '../lib/tone';
 import LeadPicker from './LeadPicker';
-import Icon, { type IconName } from './Icon';
+import Icon from './Icon';
+import { navGroups, tabItems } from '../lib/nav';
 import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 import PasskeyNudge from './PasskeyNudge';
 
-type NavItem = { to: string; label: string; icon: IconName; section: string; adminOnly?: boolean; scoresOnly?: boolean };
-const NAV: NavItem[] = [
-  { to: '/', label: 'Home', icon: 'home', section: 'home' },
-  { to: '/scores', label: 'Lead Scores', icon: 'trophy', section: 'scores', scoresOnly: true },
-  { to: '/schedule', label: 'Lead Schedule', icon: 'calendar', section: 'schedule' },
-  { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
-  { to: '/handoff', label: 'Shift Handoff', icon: 'swap', section: 'handoff' },
-  { to: '/fryers', label: 'Fryer Tracker', icon: 'flame', section: 'fryers' },
-  { to: '/training', label: 'Who’s Trained', icon: 'users', section: 'training' },
-  { to: '/waste', label: 'Waste Log', icon: 'trash', section: 'waste' },
-  { to: '/notes', label: 'Equipment Issues', icon: 'wrench', section: 'notes' },
-  { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', adminOnly: true },
-];
-// Phone tab bar: the daily screens, plus More (everything else, each with a line saying what it is).
-const TABS: NavItem[] = [
-  { to: '/', label: 'Home', icon: 'home', section: 'home' },
-  { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
-  { to: '/handoff', label: 'Handoff', icon: 'swap', section: 'handoff' },
-  { to: '/schedule', label: 'Schedule', icon: 'calendar', section: 'schedule' },
-  { to: '/more', label: 'More', icon: 'grid', section: 'setup' },
-];
-
 export default function Layout({ children }: { children: ReactNode }) {
-  const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, profile, settings, canViewScores } = useApp();
+  const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, canSchedule, profile, settings, canViewScores } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
   const needsLead = isKitchen && !actorName;
 
-  const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.scoresOnly || canViewScores));
+  const ctx = { isAdmin, canSchedule, canViewScores };
+  const groups = navGroups(ctx);
+  const tabs = tabItems(ctx);
+  const { pathname } = useLocation();
+  // Sub-pages light up the tab they belong to (fryers, waste and issues live under Kitchen).
+  const KITCHEN = ['/kitchen', '/fryers', '/waste', '/notes'];
+  const tabFor = (to: string) => (to === '/' ? pathname === '/' : to === '/kitchen' ? KITCHEN.includes(pathname) : pathname === to || pathname.startsWith(`${to}/`));
+  const moreActive = !tabs.some((t) => tabFor(t.to));
 
   return (
     <div className="shell">
@@ -81,11 +67,20 @@ export default function Layout({ children }: { children: ReactNode }) {
       </header>
 
       <nav className="sidenav" aria-label="Main">
-        {nav.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={`navlink sec-${n.section}`}>
-            <Icon name={n.icon} />
-            <span>{n.label}</span>
-          </NavLink>
+        <NavLink to="/" end className="navlink sec-home">
+          <Icon name="home" />
+          <span>Home</span>
+        </NavLink>
+        {groups.map((g) => (
+          <div key={g.key} className="nav-group" role="group" aria-label={g.title}>
+            <span className="nav-group-title">{g.title}</span>
+            {g.items.map((n) => (
+              <NavLink key={n.to} to={n.to} className={`navlink sec-${n.section}`}>
+                <Icon name={n.icon} />
+                <span>{n.label}</span>
+              </NavLink>
+            ))}
+          </div>
         ))}
         <NavLink to="/account" className="navlink navlink-account">
           <Icon name="user" />
@@ -111,12 +106,16 @@ export default function Layout({ children }: { children: ReactNode }) {
       </main>
 
       <nav className="tabbar" aria-label="Main">
-        {TABS.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={`tab sec-${n.section}`}>
+        {tabs.map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={() => `tab sec-${n.section} ${tabFor(n.to) ? 'active' : ''}`}>
             <Icon name={n.icon} />
-            <span>{n.label}</span>
+            <span>{n.short ?? n.label}</span>
           </NavLink>
         ))}
+        <NavLink to="/more" className={() => `tab sec-setup ${moreActive ? 'active' : ''}`}>
+          <Icon name="grid" />
+          <span>More</span>
+        </NavLink>
       </nav>
 
       {pickerOpen && <LeadPicker onClose={() => setPickerOpen(false)} />}
