@@ -53,6 +53,8 @@ interface AppState {
   signOut: () => Promise<void>;
   isManager: boolean;
   isDirector: boolean;
+  /** Can configure the app: Setup, team accounts, who sees lead scores. */
+  isAdmin: boolean;
   isKitchen: boolean;
   /** True after someone opens a password-reset link; the app asks for a new password. */
   recovering: boolean;
@@ -76,7 +78,7 @@ interface AppState {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
 
-  /** Whether this person may see lead scores (set by directors in Setup → Store). */
+  /** Whether this person may see lead scores (admins and directors always; admins can widen it in Setup → Store). */
   canViewScores: boolean;
   /** The HOH Lead this device or account acts as: the chosen Shift Lead, or the lead linked to this account. */
   myLeadId: string | null;
@@ -233,9 +235,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const actorName = isKitchen ? leads.find((l) => l.id === leadId)?.name ?? null : profile?.full_name || null;
   const myLeadId = isKitchen ? leadId : leads.find((l) => l.profile_id && l.profile_id === profile?.id)?.id ?? null;
   const isDirectorRole = profile?.role === 'director';
-  const isManagerRole = profile?.role === 'lead' || isDirectorRole;
+  const isAdmin = !!profile?.is_admin && profile.role !== 'pending';
+  const isManagerRole = profile?.role === 'lead' || isDirectorRole || isAdmin;
   const canViewScores =
-    isDirectorRole || (settings.scores_visibility === 'managers' && isManagerRole) || (settings.scores_visibility === 'everyone' && active);
+    isDirectorRole || isAdmin || (settings.scores_visibility === 'managers' && isManagerRole) || (settings.scores_visibility === 'everyone' && active);
 
   /* ---- record the Shift Lead for this shift (shared device) ---- */
   // Ratings of this shift are credited to the lead recorded here.
@@ -272,8 +275,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     profile,
     refreshProfile,
     signOut,
-    isManager: profile?.role === 'lead' || profile?.role === 'director',
-    isDirector: profile?.role === 'director',
+    isManager: isManagerRole,
+    isDirector: isDirectorRole,
+    isAdmin,
     isKitchen,
     recovering,
     finishRecovery: () => setRecovering(false),

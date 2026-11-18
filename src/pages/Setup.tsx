@@ -27,7 +27,7 @@ import { removeFiles, uploadFile } from '../lib/files';
 type Tab = 'store' | 'leads' | 'checklists' | 'positions' | 'waste' | 'equipment' | 'team';
 
 export default function Setup() {
-  const { isDirector } = useApp();
+  const { isAdmin } = useApp();
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'store';
   const tabs: [Tab, string][] = [
@@ -37,7 +37,7 @@ export default function Setup() {
     ['positions', 'Positions'],
     ['waste', 'Waste items'],
     ['equipment', 'Equipment'],
-    ...(isDirector ? ([['team', 'Team']] as [Tab, string][]) : []),
+    ...(isAdmin ? ([['team', 'Team']] as [Tab, string][]) : []),
   ];
 
   return (
@@ -46,7 +46,7 @@ export default function Setup() {
         <span className="page-icon"><Icon name="gear" size={22} /></span>
         <h1>Setup</h1>
       </div>
-      <p className="muted lede">Everything here changes the app for the whole store right away. No code needed.</p>
+      <p className="muted lede">Only admins see Setup. Everything here changes the app for the whole store right away. No code needed.</p>
       <div className="tabs" role="tablist">
         {tabs.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setParams({ tab: k }, { replace: true })}>
@@ -60,7 +60,7 @@ export default function Setup() {
       {tab === 'positions' && <PositionsEditor />}
       {tab === 'waste' && <WasteItemsEditor />}
       {tab === 'equipment' && <EquipmentEditor />}
-      {tab === 'team' && isDirector && <TeamEditor />}
+      {tab === 'team' && isAdmin && <TeamEditor />}
     </div>
   );
 }
@@ -225,18 +225,18 @@ function StoreEditor() {
 }
 
 function ScoresVisibilityEditor() {
-  const { settings, isDirector } = useApp();
+  const { settings, isAdmin } = useApp();
   const save = useSaveSettings();
   const options: [ScoresVisibility, string][] = [
-    ['directors', 'Only directors can see ratings and lead scores.'],
-    ['managers', 'Directors and HOH Leads (accounts with the HOH Lead role) can see them.'],
+    ['directors', 'Only admins and directors can see ratings and lead scores.'],
+    ['managers', 'Admins, directors and HOH Leads (accounts with the HOH Lead role) can see them.'],
     ['everyone', 'Everyone with an approved account can see them, including the shared kitchen device.'],
   ];
   return (
     <section className="card">
       <SectionIntro title="Who can see lead scores">
         Anyone can rate the previous shift. This controls who can see the stars, comments and the Lead Scores page.
-        {!isDirector && ' Only directors can change it.'}
+        {!isAdmin && ' Only admins can change it.'}
       </SectionIntro>
       <div className="radio-list" role="radiogroup" aria-label="Who can see lead scores">
         {options.map(([key, hint]) => (
@@ -245,7 +245,7 @@ function ScoresVisibilityEditor() {
             role="radio"
             aria-checked={settings.scores_visibility === key}
             className={`radio-option ${settings.scores_visibility === key ? 'on' : ''}`}
-            disabled={!isDirector}
+            disabled={!isAdmin}
             onClick={() => save({ scores_visibility: key }, `Lead scores: ${SCORES_VISIBILITY_LABELS[key]}`)}
           >
             <span className="radio-dot" aria-hidden="true" />
@@ -346,22 +346,22 @@ function ListEditor({ items, noun, onChange }: { items: string[]; noun: string; 
 /* ------------------------------------------------------------------ */
 function LeadsEditor() {
   const { rows, run, move } = useTable<HohLead>('hoh_leads');
-  const { isDirector } = useApp();
+  const { isAdmin } = useApp();
   const confirm = useConfirm();
   const [people, setPeople] = useState<Profile[]>([]);
   useEffect(() => {
-    if (!isDirector) return;
+    if (!isAdmin) return;
     supabase
       .from('profiles')
       .select('*')
       .order('full_name')
       .then(({ data }) => setPeople(((data as Profile[]) ?? []).filter((p) => p.role !== 'pending' && p.role !== 'kitchen')));
-  }, [isDirector]);
+  }, [isAdmin]);
   return (
     <section className="card">
       <SectionIntro title="HOH Leads">
         The names the shared kitchen device can pick as Shift Lead. Ratings of each shift are credited to its Shift Lead. Hide a lead who has left to keep their score history.
-        {isDirector && ' If a lead has their own account, link it so handoffs they submit from their phone count for them.'}
+        {isAdmin && ' If a lead has their own account, link it so handoffs they submit from their phone count for them.'}
       </SectionIntro>
       <AddRow placeholder="Lead's name" onAdd={(name) => run(supabase.from('hoh_leads').insert({ name, sort_order: nextOrder(rows) }), `Added ${name}`)} />
       {rows.length === 0 ? (
@@ -372,7 +372,7 @@ function LeadsEditor() {
             <li key={l.id} className={l.active ? '' : 'inactive'}>
               <Reorder index={i} count={rows.length} onMove={move} />
               <InlineText label="Lead name" value={l.name} onSave={(name) => run(supabase.from('hoh_leads').update({ name }).eq('id', l.id))} />
-              {isDirector && (
+              {isAdmin && (
                 <select
                   className="link-select"
                   aria-label={`Account linked to ${l.name}`}
@@ -764,7 +764,7 @@ function PositionsEditor() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Team (directors only)                                               */
+/* Team (admins only)                                                  */
 /* ------------------------------------------------------------------ */
 function TeamEditor() {
   const { toast, profile: me, refreshProfile } = useApp();
@@ -804,6 +804,54 @@ function TeamEditor() {
     loadMethods();
   }, [loadMethods]);
 
+  const admins = people.filter((p) => p.is_admin && p.role !== 'pending').length;
+
+  async function setAdmin(p: Profile, on: boolean) {
+    const name = p.full_name || 'this person';
+    if (on) {
+      const ok = await confirm({
+        title: `Make ${name} an admin?`,
+        body: 'Admins can open Setup and change the app for everyone: HOH Leads, checklists, positions, equipment, store settings, team accounts and roles, and who sees lead scores.',
+        confirmLabel: 'Make admin',
+      });
+      if (ok) update(p, { is_admin: true }, `${name} is now an admin`);
+    } else {
+      if (admins <= 1) return toast('There must be at least one admin. Make someone else an admin first.', 'error');
+      const self = p.id === me?.id;
+      const ok = await confirm({
+        title: self ? 'Stop being an admin?' : `Remove ${name} as admin?`,
+        body: self ? 'You will lose access to Setup right away. Another admin can switch it back on.' : `${name} keeps their role but can't change the app's setup anymore.`,
+        confirmLabel: self ? 'Stop being an admin' : 'Remove admin',
+        danger: true,
+      });
+      if (ok) update(p, { is_admin: false }, self ? 'You are no longer an admin' : `${name} is no longer an admin`);
+    }
+  }
+
+  function setRole(p: Profile, role: Role) {
+    const name = p.full_name || 'User';
+    // A shared device or someone waiting for approval can't configure the app.
+    const dropAdmin = p.is_admin && (role === 'pending' || role === 'kitchen');
+    if (dropAdmin && admins <= 1) return toast('There must be at least one admin. Make someone else an admin first.', 'error');
+    update(p, dropAdmin ? { role, is_admin: false } : { role }, `${name} is now ${ROLE_LABELS[role]}${dropAdmin ? ' (admin switched off)' : ''}`);
+  }
+
+  async function deleteAccount(p: Profile) {
+    const name = p.full_name || 'this account';
+    const ok = await confirm({
+      title: `Delete ${name}?`,
+      body: 'Their sign-in, passkeys and profile are removed for good. Checklists, waste entries, notes, handoffs and ratings they logged stay, with their name on them. To pause someone instead, set their role to "No access".',
+      confirmLabel: 'Delete account',
+      danger: true,
+    });
+    if (!ok) return;
+    const { error } = await accountAction({ action: 'delete-user', userId: p.id });
+    if (error) return toast(error, 'error');
+    toast(`Deleted ${name}`);
+    load();
+    loadMethods();
+  }
+
   async function removePasskeys(p: Profile) {
     if (!(await confirm({ title: `Remove ${p.full_name || 'their'}'s passkeys?`, body: 'Use this if a phone or tablet is lost or replaced. They will need a sign-in code to set up a new passkey.', confirmLabel: 'Remove passkeys', danger: true }))) return;
     const { data, error } = await accountAction<{ removed: number }>({ action: 'remove-passkeys', userId: p.id });
@@ -816,6 +864,7 @@ function TeamEditor() {
     <section className="card">
       <SectionIntro title="Team accounts">
         New sign-ups wait here until you give them a role. Use "Shared Kitchen Device" for the store tablet's login. Set someone to "No access" to remove their access.
+        Switch on <strong>Admin</strong> for the people who should configure the app; a role alone (even Director) doesn't open Setup.
         Everyone signs in with a passkey. For a new or replaced phone or tablet, give the person a one-time sign-in code.
       </SectionIntro>
       {pending > 0 && <div className="banner banner-warn"><Icon name="alert" /> {pending} {pending === 1 ? 'person is' : 'people are'} waiting for approval.</div>}
@@ -829,6 +878,7 @@ function TeamEditor() {
                 <div className="muted small person-meta">
                   Joined {new Date(p.created_at).toLocaleDateString()}
                   {p.id === me?.id && <span className="pill">You</span>}
+                  {p.is_admin && p.role !== 'pending' && <span className="pill pill-admin"><Icon name="gear" size={12} /> Admin</span>}
                   {methods[p.id] && (
                     <span className="signin-methods">
                       {methods[p.id].passkeys ? (
@@ -842,11 +892,27 @@ function TeamEditor() {
                 </div>
               </div>
             </div>
-            <select value={p.role} onChange={(e) => update(p, { role: e.target.value as Role }, `${p.full_name || 'User'} is now ${ROLE_LABELS[e.target.value as Role]}`)} aria-label={`Role for ${p.full_name}`}>
-              {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-              ))}
-            </select>
+            <div className="person-access">
+              <select value={p.role} onChange={(e) => setRole(p, e.target.value as Role)} aria-label={`Role for ${p.full_name}`}>
+                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
+                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                ))}
+              </select>
+              <label
+                className={`toggle ${p.is_admin ? 'toggle-on toggle-admin' : ''} ${p.role === 'pending' || p.role === 'kitchen' ? 'toggle-disabled' : ''}`}
+                title={p.role === 'pending' ? 'Give them a role first' : p.role === 'kitchen' ? 'The shared kitchen device can’t be an admin' : 'Admins can open Setup and change the app for everyone'}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!p.is_admin}
+                  disabled={p.role === 'pending' || p.role === 'kitchen'}
+                  onChange={(e) => setAdmin(p, e.target.checked)}
+                  aria-label={`Admin: ${p.full_name || 'this person'} can configure the app`}
+                />
+                <span className="toggle-track" aria-hidden="true"><span /></span>
+                <span>Admin</span>
+              </label>
+            </div>
             <div className="person-actions">
               <button className="btn btn-ghost btn-sm" onClick={() => setCoding(p)}>
                 <Icon name="key" size={16} /> Sign-in code
@@ -856,6 +922,11 @@ function TeamEditor() {
               )}
               {p.id !== me?.id && (methods[p.id]?.passkeys ?? 0) > 0 && (
                 <button className="btn btn-ghost btn-sm text-danger" onClick={() => removePasskeys(p)}>Remove passkeys</button>
+              )}
+              {p.id !== me?.id && (
+                <button className="btn btn-ghost btn-sm text-danger" onClick={() => deleteAccount(p)}>
+                  <Icon name="trash" size={16} /> Delete account
+                </button>
               )}
             </div>
           </li>

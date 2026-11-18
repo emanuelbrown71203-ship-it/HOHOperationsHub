@@ -1,9 +1,10 @@
 // Account help for passkey sign-in (the passkeys themselves are handled by Supabase Auth):
 //   signup          create an account from just a name, so the person can add a passkey right away
-//   code-redeem     sign in with a one-time code a director gave you, to set up a passkey on a new device
-//   code-create     (directors) make a one-time sign-in code for someone
-//   team            (directors) how each person signs in: email and/or number of passkeys
-//   remove-passkeys (directors) remove someone's passkeys, for example from a lost phone
+//   code-redeem     sign in with a one-time code an admin gave you, to set up a passkey on a new device
+//   code-create     (admins) make a one-time sign-in code for someone
+//   team            (admins) how each person signs in: email and/or number of passkeys
+//   remove-passkeys (admins) remove someone's passkeys, for example from a lost phone
+//   delete-user     (admins) delete an account, for example someone who left
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
 
 // Accounts made without an email get a placeholder address that is never shown or emailed.
@@ -38,12 +39,12 @@ async function sessionToken(admin: SupabaseClient, email: string) {
   return data.properties.hashed_token;
 }
 
-async function director(admin: SupabaseClient, req: Request) {
+async function adminCaller(admin: SupabaseClient, req: Request) {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
   const { data } = await admin.auth.getUser(token);
   if (!data?.user) return null;
-  const { data: me } = await admin.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
-  return me?.role === 'director' ? data.user : null;
+  const { data: me } = await admin.from('profiles').select('role, is_admin').eq('id', data.user.id).maybeSingle();
+  return me?.is_admin && me.role !== 'pending' ? data.user : null;
 }
 
 Deno.serve(async (req) => {
@@ -92,7 +93,7 @@ Deno.serve(async (req) => {
           .maybeSingle();
         if (!row) {
           await sleep(700); // slows down guessing
-          return json({ error: 'That code is wrong, expired or already used. Ask a director for a new one.' }, 400);
+          return json({ error: 'That code is wrong, expired or already used. Ask an admin for a new one.' }, 400);
         }
         await admin.from('signin_codes').update({ used_at: new Date().toISOString() }).eq('id', row.id);
         const { data: u } = await admin.auth.admin.getUserById(row.user_id);
@@ -102,8 +103,8 @@ Deno.serve(async (req) => {
       }
 
       case 'code-create': {
-        const me = await director(admin, req);
-        if (!me) return json({ error: 'Only directors can make sign-in codes.' }, 403);
+        const me = await adminCaller(admin, req);
+        if (!me) return json({ error: 'Only admins can make sign-in codes.' }, 403);
         const userId = String(body.userId ?? '');
         const { data: target } = await admin.from('profiles').select('id, full_name').eq('id', userId).maybeSingle();
         if (!target) return json({ error: 'That account was not found.' }, 404);
@@ -119,7 +120,7 @@ Deno.serve(async (req) => {
       }
 
       case 'team': {
-        if (!(await director(admin, req))) return json({ error: 'Only directors can see this.' }, 403);
+        if (!(await adminCaller(admin, req))) return json({ error: 'Only admins can see this.' }, 403);
         const { data: people } = await admin.from('profiles').select('id');
         const result = await Promise.all(
           (people ?? []).map(async (p: { id: string }) => {
@@ -140,12 +141,28 @@ Deno.serve(async (req) => {
       }
 
       case 'remove-passkeys': {
-        if (!(await director(admin, req))) return json({ error: 'Only directors can remove passkeys.' }, 403);
+        if (!(await adminCaller(admin, req))) return json({ error: 'Only admins can remove passkeys.' }, 403);
         const userId = String(body.userId ?? '');
         const { data, error } = await admin.auth.admin.passkey.listPasskeys({ userId });
         if (error) return json({ error: error.message }, 400);
         for (const pk of data ?? []) await admin.auth.admin.passkey.deletePasskey({ userId, passkeyId: pk.id });
         return json({ removed: (data ?? []).length });
+      }
+
+      case 'delete-user': {
+        const me = await adminCaller(admin, req);
+        if (!me) return json({ error: 'Only admins can delete accounts.' }, 403);
+        const userId = String(body.userId ?? '');
+        if (userId === me.id) return json({ error: "You can't delete your own account." }, 400);
+        const { data: target } = await admin.from('profiles').select('id, full_name, role, is_admin').eq('id', userId).maybeSingle();
+        if (!target) return json({ error: 'That account was not found.' }, 404);
+        if (target.is_admin && target.role !== 'pending') {
+          const { count } = await admin.from('profiles').select('id', { count: 'exact', head: true }).eq('is_admin', true).neq('role', 'pending');
+          if ((count ?? 0) <= 1) return json({ error: 'There must be at least one admin.' }, 400);
+        }
+        const { error } = await admin.auth.admin.deleteUser(userId);
+        if (error) return json({ error: error.message }, 400);
+        return json({ deleted: true, name: target.full_name });
       }
 
       default:

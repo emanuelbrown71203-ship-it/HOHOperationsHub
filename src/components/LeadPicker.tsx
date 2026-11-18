@@ -3,7 +3,7 @@ import { useApp } from '../lib/app';
 import Modal from './Modal';
 
 export default function LeadPicker({ onClose }: { onClose: () => void }) {
-  const { leads, leadId, setLeadId, shift, isManager } = useApp();
+  const { leads, leadId, setLeadId, shift, isAdmin } = useApp();
 
   return (
     <Modal title={`Shift Lead: ${shift} shift`} onClose={onClose}>
@@ -11,10 +11,10 @@ export default function LeadPicker({ onClose }: { onClose: () => void }) {
       {leads.length === 0 ? (
         <div className="empty">
           No HOH Leads have been added yet.
-          {isManager ? (
+          {isAdmin ? (
             <> <Link to="/setup" onClick={onClose}>Add them in Setup.</Link></>
           ) : (
-            ' Ask a lead or director to add them in Setup.'
+            ' Ask an admin to add them in Setup.'
           )}
         </div>
       ) : (

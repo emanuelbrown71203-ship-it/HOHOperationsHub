@@ -3,11 +3,11 @@ import { useApp } from '../lib/app';
 import Icon, { type IconName } from '../components/Icon';
 
 export default function More() {
-  const { isManager, profile, canViewScores } = useApp();
+  const { isAdmin, profile, canViewScores } = useApp();
   const items: { to: string; label: string; hint: string; icon: IconName; section: string }[] = [
-    { to: '/waste', label: 'Waste log', hint: 'Log and review food waste', icon: 'trash', section: 'waste' },
     ...(canViewScores ? [{ to: '/scores', label: 'Lead Scores', hint: 'Shift ratings and performance for each HOH Lead', icon: 'trophy' as IconName, section: 'scores' }] : []),
-    ...(isManager ? [{ to: '/setup', label: 'Setup', hint: 'Leads, checklists, positions, equipment, store settings', icon: 'gear' as IconName, section: 'setup' }] : []),
+    { to: '/waste', label: 'Waste log', hint: 'Log and review food waste', icon: 'trash', section: 'waste' },
+    ...(isAdmin ? [{ to: '/setup', label: 'Setup', hint: 'Team accounts, leads, checklists, positions, equipment, store settings', icon: 'gear' as IconName, section: 'setup' }] : []),
     { to: '/account', label: 'Account', hint: `${profile?.full_name ?? ''} · theme, password, sign out`, icon: 'user', section: 'home' },
   ];
   return (

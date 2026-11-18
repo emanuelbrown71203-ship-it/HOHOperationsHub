@@ -7,7 +7,7 @@ import Icon from '../components/Icon';
 
 export default function PositionDetail() {
   const { id } = useParams();
-  const { isManager } = useApp();
+  const { isAdmin } = useApp();
   const { positions, filesFor, loading } = usePositions(true);
   const position = positions.find((p) => p.id === id);
   const files = position ? filesFor(position.id) : [];
@@ -32,7 +32,7 @@ export default function PositionDetail() {
           {files.length === 0 ? (
             <div className="empty">
               No checklist attached yet.
-              {isManager ? <> <Link to="/setup?tab=positions">Attach one in Setup → Positions.</Link></> : ' Ask a lead or director to attach it.'}
+              {isAdmin ? <> <Link to="/setup?tab=positions">Attach one in Setup → Positions.</Link></> : ' Ask an admin to attach it.'}
             </div>
           ) : (
             <div className="doc-list">{files.map((f) => <DocView key={f.id} file={f} />)}</div>

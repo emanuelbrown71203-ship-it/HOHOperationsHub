@@ -37,9 +37,9 @@ export function passkeyErrorMessage(err: AnyError): string {
   const code = err?.code ?? err?.error_code ?? '';
   switch (code) {
     case 'passkey_disabled':
-      return 'Passkey sign-in isn’t switched on yet. A director needs to turn it on in Supabase (Authentication → Passkeys).';
+      return 'Passkey sign-in isn’t switched on yet. An admin needs to turn it on in Supabase (Authentication → Passkeys).';
     case 'webauthn_credential_not_found':
-      return 'That passkey isn’t set up for this app anymore. Ask a director for a sign-in code.';
+      return 'That passkey isn’t set up for this app anymore. Ask an admin for a sign-in code.';
     case 'webauthn_challenge_expired':
     case 'webauthn_challenge_not_found':
       return 'That took too long. Please try again.';
@@ -50,7 +50,7 @@ export function passkeyErrorMessage(err: AnyError): string {
     case 'webauthn_verification_failed':
       return 'The passkey couldn’t be checked. Please try again.';
     case 'user_banned':
-      return 'This account has been switched off. Ask a director.';
+      return 'This account has been switched off. Ask an admin.';
     default:
       if (wasCancelled(err)) return 'Cancelled. Tap the button again when you’re ready.';
       return err?.message || 'Something went wrong with the passkey. Please try again.';

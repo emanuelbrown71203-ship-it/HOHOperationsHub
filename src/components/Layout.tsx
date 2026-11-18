@@ -9,25 +9,25 @@ import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 import PasskeyNudge from './PasskeyNudge';
 
-type NavItem = { to: string; label: string; icon: IconName; section: string; managerOnly?: boolean; scoresOnly?: boolean };
+type NavItem = { to: string; label: string; icon: IconName; section: string; adminOnly?: boolean; scoresOnly?: boolean };
 const NAV: NavItem[] = [
   { to: '/', label: 'Home', icon: 'home', section: 'home' },
+  { to: '/scores', label: 'Lead Scores', icon: 'trophy', section: 'scores', scoresOnly: true },
   { to: '/checklists', label: 'Checklists', icon: 'check', section: 'checklists' },
   { to: '/handoff', label: 'Handoff', icon: 'swap', section: 'handoff' },
   { to: '/notes', label: 'Notes', icon: 'note', section: 'notes' },
   { to: '/waste', label: 'Waste', icon: 'trash', section: 'waste' },
-  { to: '/scores', label: 'Lead Scores', icon: 'trophy', section: 'scores', scoresOnly: true },
-  { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', managerOnly: true },
+  { to: '/setup', label: 'Setup', icon: 'gear', section: 'setup', adminOnly: true },
 ];
-// Phone tab bar: the four daily screens, plus More (waste, setup, account).
-const TABS: NavItem[] = [...NAV.slice(0, 4), { to: '/more', label: 'More', icon: 'grid', section: 'setup' }];
+// Phone tab bar: the four daily screens, plus More (lead scores, waste, setup, account).
+const TABS: NavItem[] = [...NAV.filter((n) => !n.scoresOnly && !n.adminOnly).slice(0, 4), { to: '/more', label: 'More', icon: 'grid', section: 'setup' }];
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { isKitchen, actorName, shift, setShift, shiftNames, isManager, profile, settings, canViewScores } = useApp();
+  const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, profile, settings, canViewScores } = useApp();
   const [pickerOpen, setPickerOpen] = useState(false);
   const needsLead = isKitchen && !actorName;
 
-  const nav = NAV.filter((n) => (!n.managerOnly || isManager) && (!n.scoresOnly || canViewScores));
+  const nav = NAV.filter((n) => (!n.adminOnly || isAdmin) && (!n.scoresOnly || canViewScores));
 
   return (
     <div className="shell">

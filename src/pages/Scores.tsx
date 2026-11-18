@@ -42,7 +42,7 @@ export function RangeFilter({ range }: { range: ScoreRange }) {
 }
 
 export default function Scores() {
-  const { today, shift, settings, isDirector } = useApp();
+  const { today, shift, settings, isAdmin } = useApp();
   const [params] = useSearchParams();
   const range = useScoreRange(params);
   const { records, shifts, leads, loading } = useScores();
@@ -72,7 +72,7 @@ export default function Scores() {
       <p className="muted lede">
         The incoming shift rates the previous shift's setup from 1 to 5 stars. Each rating is credited to the HOH Lead who ran that shift.
         Visible to: <strong>{SCORES_VISIBILITY_LABELS[settings.scores_visibility]}</strong>
-        {isDirector && <> · <Link to="/setup?tab=store">change</Link></>}
+        {isAdmin && <> · <Link to="/setup?tab=store">change</Link></>}
       </p>
 
       <div className="filter-row">
@@ -112,7 +112,7 @@ export default function Scores() {
               <span className="muted small">Average stars · tap a lead for their full record</span>
             </div>
             {rows.length === 0 ? (
-              <p className="muted">No HOH Leads yet. Add them in Setup → HOH Leads.</p>
+              <p className="muted">No HOH Leads yet. An admin can add them in Setup → HOH Leads.</p>
             ) : (
               <ol className="meter-list">
                 {ranked.map(({ lead, s }, i) => (

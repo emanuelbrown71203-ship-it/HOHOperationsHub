@@ -23,7 +23,7 @@ export default function Account() {
       if ((data?.length ?? 0) === 0) {
         const ok = await confirm({
           title: 'Save a passkey first?',
-          body: 'You haven’t saved a passkey yet, so you won’t be able to sign back in on your own. You’d need a sign-in code from a director.',
+          body: 'You haven’t saved a passkey yet, so you won’t be able to sign back in on your own. You’d need a sign-in code from an admin.',
           confirmLabel: 'Sign out anyway',
           danger: true,
         });
@@ -59,6 +59,7 @@ export default function Account() {
           <strong className="profile-name">{profile?.full_name}</strong>
           <div className="muted small">{isPlaceholderEmail(session?.user.email) ? 'Signs in with a passkey' : session?.user.email}</div>
           <span className="pill pill-accent profile-role">{profile ? ROLE_LABELS[profile.role] : ''}</span>
+          {profile?.is_admin && profile.role !== 'pending' && <span className="pill pill-admin profile-role">Admin</span>}
         </div>
       </section>
       {isKitchen && (

@@ -11,13 +11,13 @@ type Row = Record<string, any>;
 type Db = Record<string, Row[]>;
 type Result = { data: any; error: { message: string; code?: string } | null };
 
-const DB_KEY = 'hoh.demo.db.v4';
+const DB_KEY = 'hoh.demo.db.v5';
 const SESSION_KEY = 'hoh.demo.session.v1';
 
 export const DEMO_ACCOUNTS = [
   { email: 'kitchen@demo', label: 'Store tablet', hint: 'Shared kitchen device: pick a Shift Lead, entries get their name' },
-  { email: 'director@demo', label: 'Director', hint: 'Full access, including Setup and approving team accounts' },
-  { email: 'lead@demo', label: 'HOH Lead (Jordan)', hint: "Jordan's own account, linked to the Jordan lead. Can't see scores unless a director allows it" },
+  { email: 'director@demo', label: 'Director + Admin', hint: 'Sees the lead score record and configures the app: Setup and team accounts' },
+  { email: 'lead@demo', label: 'HOH Lead (Jordan)', hint: "Jordan's own account, linked to the Jordan lead. Can't see scores unless an admin allows it" },
   { email: 'member@demo', label: 'Team member', hint: 'Personal account: entries get their own name' },
 ];
 
@@ -70,11 +70,11 @@ function seed(): Db {
   const pmStarted = new Date().getHours() >= 14;
 
   const profiles: Row[] = [
-    { id: 'u-kitchen', email: 'kitchen@demo', full_name: 'Store Kitchen', role: 'kitchen', created_at: minutesAgo(60 * 24 * 30) },
-    { id: 'u-director', email: 'director@demo', full_name: 'Alex Rivera', role: 'director', created_at: minutesAgo(60 * 24 * 40) },
-    { id: 'u-member', email: 'member@demo', full_name: 'Sam Lee', role: 'team_member', created_at: minutesAgo(60 * 24 * 10) },
-    { id: 'u-lead', email: 'lead@demo', full_name: 'Jordan Ellis', role: 'lead', created_at: minutesAgo(60 * 24 * 60) },
-    { id: 'u-new', email: 'new@demo', full_name: 'Riley Brooks', role: 'pending', created_at: minutesAgo(90) },
+    { id: 'u-kitchen', email: 'kitchen@demo', full_name: 'Store Kitchen', role: 'kitchen', is_admin: false, created_at: minutesAgo(60 * 24 * 30) },
+    { id: 'u-director', email: 'director@demo', full_name: 'Alex Rivera', role: 'director', is_admin: true, created_at: minutesAgo(60 * 24 * 40) },
+    { id: 'u-member', email: 'member@demo', full_name: 'Sam Lee', role: 'team_member', is_admin: false, created_at: minutesAgo(60 * 24 * 10) },
+    { id: 'u-lead', email: 'lead@demo', full_name: 'Jordan Ellis', role: 'lead', is_admin: false, created_at: minutesAgo(60 * 24 * 60) },
+    { id: 'u-new', email: 'new@demo', full_name: 'Riley Brooks', role: 'pending', is_admin: false, created_at: minutesAgo(90) },
   ];
 
   const leads: Row[] = ['Jordan', 'Taylor', 'Morgan', 'Avery'].map((name, i) => ({
@@ -325,14 +325,16 @@ function setSession(s: Session | null, event: string) {
   for (const cb of authListeners) cb(event, s);
 }
 const me = () => db.profiles.find((p) => p.id === session?.user.id) ?? null;
-const isManager = () => ['lead', 'director'].includes(me()?.role);
+/** Mirrors public.is_admin(): admins configure the app. */
+const isAdmin = () => !!me()?.is_admin && me()?.role !== 'pending';
+const isManager = () => ['lead', 'director'].includes(me()?.role) || isAdmin();
 const isActive = () => !!me() && me()!.role !== 'pending';
 
-/** Mirrors public.can_view_scores(): directors always; HOH Leads or everyone if a director allows it. */
+/** Mirrors public.can_view_scores(): admins and directors always; HOH Leads or everyone if an admin allows it. */
 const canViewScores = () => {
   const role = me()?.role;
   const vis = db.app_settings?.[0]?.scores_visibility ?? 'directors';
-  return role === 'director' || (vis === 'managers' && role === 'lead') || (vis === 'everyone' && isActive());
+  return role === 'director' || isAdmin() || (vis === 'managers' && isManager()) || (vis === 'everyone' && isActive());
 };
 /** Mirrors public.actor_lead_id(): the chosen Shift Lead on the shared device, or the lead linked to this account. */
 const actorLeadId = (leadId: string | null): string | null => {
@@ -372,6 +374,9 @@ function actorName(leadId: string | null): string | Result {
 }
 
 const CONFIG_TABLES = ['hoh_leads', 'checklist_templates', 'checklist_items', 'waste_items', 'equipment', 'weekly_focus', 'shoutouts', 'positions', 'position_files'];
+/** Setup lists only admins change; the focus of the week and shoutouts are for leads, directors and admins. */
+const ADMIN_TABLES = ['hoh_leads', 'checklist_templates', 'checklist_items', 'waste_items', 'equipment', 'positions', 'position_files', 'app_settings'];
+const canChange = (t: string) => (ADMIN_TABLES.includes(t) ? isAdmin() : CONFIG_TABLES.includes(t) ? isManager() : true);
 const CREATED_BY_TABLES = ['weekly_focus', 'shoutouts'];
 const LOG_TABLES = ['checklist_checks', 'waste_entries', 'equipment_logs'];
 const DEFAULTS: Record<string, Row> = {
@@ -447,7 +452,7 @@ class Query implements PromiseLike<Result> {
       }
 
       if (this.op === 'insert') {
-        if (CONFIG_TABLES.includes(t) && !isManager()) return rls(t);
+        if (!canChange(t)) return rls(t);
         if (!isActive()) return rls(t);
         const input = Array.isArray(this.payload) ? this.payload : [this.payload];
         const created: Row[] = [];
@@ -485,19 +490,22 @@ class Query implements PromiseLike<Result> {
       const targets = this.visible();
 
       if (this.op === 'update') {
-        if ((CONFIG_TABLES.includes(t) || t === 'app_settings') && !isManager()) return this.returning ? this.shape([]) : { data: null, error: null };
-        if (t === 'app_settings' && 'scores_visibility' in this.payload && me()?.role !== 'director' && targets.some((r) => r.scores_visibility !== this.payload.scores_visibility)) {
-          return fail('Only directors can change who sees lead scores');
+        if (!canChange(t)) return this.returning ? this.shape([]) : { data: null, error: null };
+        if (t === 'app_settings' && 'scores_visibility' in this.payload && !isAdmin() && targets.some((r) => r.scores_visibility !== this.payload.scores_visibility)) {
+          return fail('Only admins can change who sees lead scores');
         }
-        if (t === 'hoh_leads' && 'profile_id' in this.payload && me()?.role !== 'director') return fail('Only directors can link accounts to HOH Leads');
+        if (t === 'hoh_leads' && 'profile_id' in this.payload && !isAdmin()) return fail('Only admins can link accounts to HOH Leads');
         if (VIEWS[t] || t === 'shift_ratings' || t === 'shift_handoffs') return this.returning ? this.shape([]) : { data: null, error: null };
         if (t === 'profiles') {
           for (const r of targets) {
-            if (r.id !== session.user.id && me()?.role !== 'director') continue;
-            if ('role' in this.payload && this.payload.role !== r.role) {
-              if (me()?.role !== 'director') return fail('Only directors can change roles');
-              if (r.role === 'director' && db.profiles.filter((p) => p.role === 'director').length <= 1) {
-                return fail('There must be at least one director');
+            if (r.id !== session.user.id && !isAdmin()) continue;
+            const role = this.payload.role ?? r.role;
+            const admin = this.payload.is_admin ?? r.is_admin;
+            if (role !== r.role || admin !== r.is_admin) {
+              if (!isAdmin()) return fail('Only admins can change roles');
+              const wasAdmin = r.is_admin && r.role !== 'pending';
+              if (wasAdmin && (!admin || role === 'pending') && db.profiles.filter((p) => p.is_admin && p.role !== 'pending').length <= 1) {
+                return fail('There must be at least one admin');
               }
             }
           }
@@ -505,7 +513,7 @@ class Query implements PromiseLike<Result> {
         const patch = { ...this.payload };
         if (LOG_TABLES.includes(t)) { delete patch.user_id; delete patch.lead_id; delete patch.performed_by_name; }
         if (CREATED_BY_TABLES.includes(t)) patch.created_by_name = me()?.full_name || 'Unknown';
-        const changed = targets.filter((r) => !LOG_TABLES.includes(t) || r.user_id === session!.user.id || isManager());
+        const changed = targets.filter((r) => (t !== 'profiles' || r.id === session!.user.id || isAdmin()) && (!LOG_TABLES.includes(t) || r.user_id === session!.user.id || isManager()));
         changed.forEach((r) => Object.assign(r, patch));
         persist();
         emit(t);
@@ -514,10 +522,10 @@ class Query implements PromiseLike<Result> {
 
       // delete
       let removable = targets;
-      if (CONFIG_TABLES.includes(t)) removable = isManager() ? targets : [];
+      if (CONFIG_TABLES.includes(t)) removable = canChange(t) ? targets : [];
       else if (LOG_TABLES.includes(t) || t === 'handoff_photos') removable = targets.filter((r) => r.user_id === session!.user.id || isManager());
       else if (t === 'shift_handoffs' || t === 'app_settings' || VIEWS[t]) removable = [];
-      else if (t === 'shift_ratings') removable = me()?.role === 'director' ? targets : [];
+      else if (t === 'shift_ratings') removable = me()?.role === 'director' || isAdmin() ? targets : [];
       else if (t === 'profiles') removable = [];
       const ids = new Set(removable.map(keyOf));
       db[t] = (db[t] ?? []).filter((r) => !ids.has(keyOf(r)));
@@ -572,11 +580,11 @@ export function createDemoClient() {
       const isRated = (h: Row) => db.shift_ratings.some((r) => r.handoff_id === h.id);
 
       if (fn === 'set_shift_lead') {
-        if (!role || !['kitchen', 'lead', 'director'].includes(role)) return fail('Only the shared kitchen device or a lead can set the Shift Lead');
+        if (!isAdmin() && (!role || !['kitchen', 'lead', 'director'].includes(role))) return fail('Only the shared kitchen device or a lead can set the Shift Lead');
         const lead = db.hoh_leads.find((l) => l.id === args.p_lead_id && l.active);
         if (!lead) return fail('That Shift Lead is not on the active HOH Leads list');
         const h = ensureHandoff(args.p_date, args.p_shift);
-        if (role !== 'director' && isRated(h)) return fail('That shift has already been rated. Ask a director to change its Shift Lead.');
+        if (role !== 'director' && !isAdmin() && isRated(h)) return fail('That shift has already been rated. Ask a director or admin to change its Shift Lead.');
         Object.assign(h, { lead_id: lead.id, lead_name: lead.name });
         return done();
       }
@@ -641,23 +649,42 @@ export function createDemoClient() {
       invoke: async (name: string, opts?: { body?: Row }) => {
         await new Promise((r) => setTimeout(r, 200));
         const body = opts?.body ?? {};
-        const isDirector = me()?.role === 'director';
+        const admin = isAdmin();
         if (name === 'set-password') {
-          if (!isDirector) return { data: null, error: { message: 'Only directors can set passwords for other people.' } };
+          if (!admin) return { data: null, error: { message: 'Only admins can set passwords for other people.' } };
           return { data: { ok: true }, error: null }; // the demo has no real passwords
         }
         if (name === 'account') {
           if (body.action === 'team') {
-            if (!isDirector) return { data: null, error: { message: 'Only directors can see this.' } };
+            if (!admin) return { data: null, error: { message: 'Only admins can see this.' } };
             return { data: { people: db.profiles.map((p) => ({ userId: p.id, email: null, passkeys: p.role === 'pending' ? 0 : p.role === 'director' ? 2 : 1 })) }, error: null };
           }
           if (body.action === 'code-create') {
-            if (!isDirector) return { data: null, error: { message: 'Only directors can make sign-in codes.' } };
+            if (!admin) return { data: null, error: { message: 'Only admins can make sign-in codes.' } };
             const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
             const c = Array.from({ length: 8 }, () => A[Math.floor(Math.random() * A.length)]).join('');
             return { data: { code: `${c.slice(0, 4)}-${c.slice(4)}`, expires_at: new Date(Date.now() + 864e5).toISOString() }, error: null };
           }
-          if (body.action === 'remove-passkeys') return { data: { removed: 1 }, error: null };
+          if (body.action === 'remove-passkeys') {
+            if (!admin) return { data: null, error: { message: 'Only admins can remove passkeys.' } };
+            return { data: { removed: 1 }, error: null };
+          }
+          if (body.action === 'delete-user') {
+            if (!admin) return { data: null, error: { message: 'Only admins can delete accounts.' } };
+            if (body.userId === session?.user.id) return { data: null, error: { message: 'You can’t delete your own account here.' } };
+            const target = db.profiles.find((p) => p.id === body.userId);
+            if (!target) return { data: null, error: { message: 'That account no longer exists.' } };
+            if (target.is_admin && target.role !== 'pending' && db.profiles.filter((p) => p.is_admin && p.role !== 'pending').length <= 1) {
+              return { data: null, error: { message: 'There must be at least one admin.' } };
+            }
+            // Like the real foreign keys: the profile goes, history keeps the names.
+            db.profiles = db.profiles.filter((p) => p.id !== body.userId);
+            db.hoh_leads.forEach((l) => l.profile_id === body.userId && (l.profile_id = null));
+            persist();
+            emit('profiles');
+            emit('hoh_leads');
+            return { data: { ok: true }, error: null };
+          }
           return { data: null, error: { message: 'Passkeys can’t be used in this demo.' } };
         }
         return { data: null, error: { message: `Unknown function ${name}` } };

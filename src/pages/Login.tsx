@@ -71,7 +71,7 @@ export default function Login() {
       if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
         if (error) throw error;
-        setNotice('If that email has an account, a reset link is on its way. Or ask a director to set a temporary password for you.');
+        setNotice('If that email has an account, a reset link is on its way. Or ask an admin to set a temporary password for you.');
         setMode('email');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -138,13 +138,13 @@ export default function Login() {
             <button className="btn btn-primary btn-block btn-lg" disabled={busy || !name.trim()}>
               {busy ? 'Creating…' : 'Continue'}
             </button>
-            <p className="muted small">Next, you’ll save a passkey on this device. A director approves new accounts before they can see store data.</p>
+            <p className="muted small">Next, you’ll save a passkey on this device. An admin approves new accounts before they can see store data.</p>
             <button type="button" className="link-btn" onClick={() => go('start')}>Back</button>
           </form>
         ) : mode === 'code' ? (
           <form className="auth-actions" onSubmit={useCode}>
             <h2 className="auth-step">Use a sign-in code</h2>
-            <p className="muted small">A director can make you a one-time code in Setup → Team. Use it to set up a passkey on a new device.</p>
+            <p className="muted small">An admin can make you a one-time code in Setup → Team. Use it to set up a passkey on a new device.</p>
             <label className="field">
               <span>Sign-in code</span>
               <input

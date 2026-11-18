@@ -6,21 +6,22 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 
 ## Features
 
-- **Home**: the current shift (AM or PM) with today's day-dot color, the **focus of the week**, **shoutouts** for HOH Leads, the shift handoff status, and pinned kitchen notes.
+- **Home**: for anyone allowed to see lead scores, the **lead score record comes first** (store average, each HOH Lead's last-30-day score, the latest rating). Then the current shift (AM or PM) with today's day-dot color, the **focus of the week**, **shoutouts** for HOH Leads, the shift handoff status, and pinned kitchen notes.
 - **Shift handoff**: the leaving shift uploads photos (required) and optional notes at the shift swap and at close. The incoming shift **rates the previous shift's setup from 1 to 5 stars**, credited to the HOH Lead who ran that shift.
-- **Lead Scores**: each HOH Lead's average rating, change versus the previous period, weekly trend against the store average, star breakdown, handoff completion and every comment. Ratings export to CSV. Only directors can see scores unless a director changes it in Setup → Store.
+- **Lead Scores**: each HOH Lead's average rating, change versus the previous period, weekly trend against the store average, star breakdown, handoff completion and every comment. Ratings export to CSV. Admins and directors always see scores; an admin can also open them to HOH Leads or everyone in Setup → Store.
 - **Kitchen notes**: notes on any equipment (or the kitchen in general), with an optional photo, pinned on Home until someone marks them fixed.
 - **Checklists**: a few required **HOH Lead checklists** checked off in the app (daily or weekly), and **position checklists** where the paper checklist for each position is attached as a photo or PDF.
 - **Waste log**: quick-pick items, reasons and units, with summaries and CSV export.
-- **Setup** (leads and directors): store name, shift start times, waste reasons and units, HOH Leads, checklists, positions, equipment and team accounts. No code changes needed.
+- **Setup** (admins only): store name, shift start times, waste reasons and units, HOH Leads, checklists, positions, equipment, team accounts and who sees lead scores. No code changes needed.
+- **Passkey sign-in**: people create an account with just their name and sign in with Face ID, a fingerprint or the device passcode. No email address needed.
 - **Live updates** across devices, **phone and tablet layouts**, and a light or dark theme per device.
 
 ## Lead scores: how a rating is credited
 
 1. When the shared kitchen device picks the **Shift Lead**, the app records that lead as running the shift. (A lead who submits the handoff from their own linked account is recorded too.)
 2. The incoming shift rates the setup they walked into. The rating counts for the recorded Shift Lead. If no lead was recorded, the person rating picks one from the HOH Leads list.
-3. Leads can't rate their own shift, and a rating can only be changed by the person who made it or by a lead or director.
-4. Directors can move a rating to the correct lead or delete it from the lead's score page.
+3. Leads can't rate their own shift, and a rating can only be changed by the person who made it or by a lead, director or admin.
+4. Directors and admins can move a rating to the correct lead or delete it from the lead's score page.
 
 The record lives in the `shift_ratings` table, with two read-only views for browsing in the Supabase Table Editor: `lead_rating_history` (one row per rating) and `lead_scores` (one row per lead).
 
@@ -37,20 +38,24 @@ The database fills in the name itself, so it can't be faked or edited afterward.
 
 | Role | Can do |
 | --- | --- |
-| Pending | Nothing yet. New sign-ups wait here until a director approves them. |
-| Team Member | Check off checklists, log waste and equipment, resolve issues |
-| HOH Lead | All of the above, plus **Setup** (HOH Leads list, checklists, waste items, equipment) |
-| Director | All of the above, plus **Setup → Team** (approve accounts, change roles) |
+| Pending | Nothing yet. New sign-ups wait here until an admin approves them. |
+| Team Member | Checklists, handoffs, rating the previous shift, kitchen notes, waste log |
+| HOH Lead | All of the above, plus the focus of the week, shoutouts, and fixing other people's entries |
+| Director | All of the above, plus the **lead score record** (always visible) and moving or deleting ratings |
 | Shared Kitchen Device | Same as Team Member, but credits the selected Shift Lead |
+
+**Admin** is a switch on top of any role (Setup → Team). Admins configure the app: everything in **Setup**, team accounts (approve, change roles, sign-in codes, delete accounts) and who can see lead scores. A Director without the Admin switch can't change the setup. There is always at least one admin, and the very first account becomes Director + Admin automatically.
 
 ## First-time setup (do this once)
 
-1. **Turn off email confirmation, or set up email sending.** Supabase's built-in email service only sends to members of your Supabase team, so team members' confirmation emails won't arrive. Easiest fix: in the Supabase dashboard open project **hoh-operations-hub → Authentication → Sign In / Providers → Email** and turn off **Confirm email**. (Or add your own SMTP under Authentication → Emails.)
-2. **Create your account first.** The very first account becomes the **Director** automatically.
+1. **Passkeys are switched on** in Supabase (Authentication → Passkeys), with `hoh-operations-hub.vercel.app` as the passkey address.
+2. **Create your account first** (just your name, then save a passkey). The very first account becomes **Director + Admin** automatically.
 3. **Add your HOH Leads** in **Setup → HOH Leads**.
-4. **Create the store tablet's login.** Sign up on the tablet with a store email (for example `kitchen@yourstore…`), then as Director set its role to **Shared Kitchen Device** in **Setup → Team**.
-5. **Approve everyone else** in **Setup → Team** as they sign up.
+4. **Create the store tablet's login.** On the tablet, create an account named something like "Store Kitchen" and save a passkey, then set its role to **Shared Kitchen Device** in **Setup → Team**.
+5. **Approve everyone else** in **Setup → Team** as they sign up, and switch on **Admin** for anyone else who should configure the app.
 6. Edit the starter checklists, equipment and waste items in **Setup** to match your kitchen.
+
+For a lost or new phone, an admin makes a one-time **sign-in code** in Setup → Team; the person enters it on the new device and saves a new passkey there. Signing in with an email and password still works for accounts that have one.
 
 ## Running locally
 
@@ -81,5 +86,10 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0006_lead_scores.sql`: shift ratings credited to HOH Leads, score visibility, linked lead accounts, score views
 - `0007_only_directors_move_rated_shifts.sql`: only directors can move a rated shift to a different lead
 - `0008_drop_old_rating_columns.sql`: removes two unused rating columns from `shift_handoffs` (run once in the Supabase SQL Editor)
+- `0009_signin_codes.sql`: one-time sign-in codes for setting up a passkey on a new device
+- `0010_admins.sql`: the Admin switch; only admins change Setup, team accounts and who sees lead scores
 
-Edge function: `supabase/functions/set-password` lets directors set a temporary password for a team member (Setup → Team).
+Edge functions:
+
+- `supabase/functions/account`: creates passkey accounts, redeems and makes sign-in codes, and lets admins see how people sign in, remove lost passkeys and delete accounts (Setup → Team)
+- `supabase/functions/set-password`: lets admins set a temporary password for someone who signs in with email (Setup → Team)

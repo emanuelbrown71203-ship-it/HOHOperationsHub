@@ -18,7 +18,7 @@ import Account from './pages/Account';
 import ResetPassword from './pages/ResetPassword';
 
 export default function App() {
-  const { session, profile, loading, isManager, recovering, canViewScores } = useApp();
+  const { session, profile, loading, isAdmin, recovering, canViewScores } = useApp();
 
   if (loading) {
     return <div className="center-screen"><div className="spinner" aria-label="Loading" /></div>;
@@ -41,7 +41,7 @@ export default function App() {
         <Route path="/more" element={<More />} />
         <Route path="/scores" element={canViewScores ? <Scores /> : <Navigate to="/" replace />} />
         <Route path="/scores/:id" element={canViewScores ? <LeadScore /> : <Navigate to="/" replace />} />
-        <Route path="/setup" element={isManager ? <Setup /> : <Navigate to="/" replace />} />
+        <Route path="/setup" element={isAdmin ? <Setup /> : <Navigate to="/" replace />} />
         <Route path="/account" element={<Account />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

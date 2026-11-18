@@ -10,6 +10,7 @@ import DayDot from '../components/DayDot';
 import Icon from '../components/Icon';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import { FocusCard, ShoutoutCard } from '../components/HomeCards';
+import ScoreboardCard from '../components/ScoreboardCard';
 import { NoteCard, useKitchenNotes } from './Notes';
 import { RateCard, useHandoffs } from './Handoff';
 
@@ -34,6 +35,8 @@ export default function Home() {
 
   return (
     <div className="page sec-home">
+      {canViewScores && <ScoreboardCard />}
+
       <section className={`hero tone-${tone}`}>
         <div className="hero-sky" aria-hidden="true"><span className="hero-sun" /></div>
         <div className="hero-main">
@@ -127,7 +130,7 @@ export default function Home() {
               <Link to="/checklists" className="link-more">All <Icon name="chevron" size={16} /></Link>
             </div>
             {progress.length === 0 ? (
-              <p className="muted">No lead checklists yet. Add them in Setup.</p>
+              <p className="muted">No lead checklists yet. An admin can add them in Setup.</p>
             ) : (
               <ul className="mini-list">
                 {[...progress].sort((a, b) => Number(b.template.shift === shift) - Number(a.template.shift === shift)).map((p) => (

@@ -12,6 +12,8 @@ export interface Profile {
   id: string;
   full_name: string;
   role: Role;
+  /** Admins configure the app (Setup, team accounts, who sees lead scores). */
+  is_admin: boolean;
   created_at: string;
 }
 
@@ -20,7 +22,7 @@ export interface HohLead {
   name: string;
   active: boolean;
   sort_order: number;
-  /** The person's own account, if a director linked one (their handoffs are then credited to them). */
+  /** The person's own account, if an admin linked one (their handoffs are then credited to them). */
   profile_id: string | null;
 }
 
@@ -162,8 +164,8 @@ export interface RatingRecord {
 export type ScoresVisibility = 'directors' | 'managers' | 'everyone';
 
 export const SCORES_VISIBILITY_LABELS: Record<ScoresVisibility, string> = {
-  directors: 'Directors only',
-  managers: 'Directors and HOH Leads',
+  directors: 'Admins and directors',
+  managers: 'Admins, directors and HOH Leads',
   everyone: 'Everyone on the team',
 };
 

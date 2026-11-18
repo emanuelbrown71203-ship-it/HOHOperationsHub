@@ -1,4 +1,4 @@
-// Lets a director set a temporary password for someone on the team, so nobody is locked
+// Lets an admin set a temporary password for someone on the team, so nobody is locked
 // out when password-reset emails can't be delivered. The person can change it in Account.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 
@@ -24,8 +24,8 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await admin.auth.getUser(token);
   if (userError || !userData?.user) return json({ error: 'Sign in again, then retry.' }, 401);
 
-  const { data: me } = await admin.from('profiles').select('role').eq('id', userData.user.id).maybeSingle();
-  if (me?.role !== 'director') return json({ error: 'Only directors can set passwords for other people.' }, 403);
+  const { data: me } = await admin.from('profiles').select('role, is_admin').eq('id', userData.user.id).maybeSingle();
+  if (!me?.is_admin || me.role === 'pending') return json({ error: 'Only admins can set passwords for other people.' }, 403);
 
   let body: { userId?: unknown; password?: unknown };
   try {

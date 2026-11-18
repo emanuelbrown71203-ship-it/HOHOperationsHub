@@ -16,7 +16,7 @@ export default function LeadScore() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const range = useScoreRange(params);
-  const { today, shift, isDirector, toast } = useApp();
+  const { today, shift, isDirector, isAdmin, toast } = useApp();
   const confirm = useConfirm();
   const { records, shifts, leads, loading, reload } = useScores();
   const [moving, setMoving] = useState<RatingRecord | null>(null);
@@ -110,7 +110,7 @@ export default function LeadScore() {
                     Rated by {r.rated_by_name} · {r.handoff_submitted ? `handoff submitted, ${r.photo_count} photo${r.photo_count === 1 ? '' : 's'}` : 'handoff not submitted'}
                   </span>
                 </div>
-                {isDirector && (
+                {(isDirector || isAdmin) && (
                   <div className="rating-actions">
                     <button className="btn btn-ghost btn-sm" onClick={() => setMoving(r)}>Wrong lead?</button>
                     <button className="icon-btn" onClick={() => removeRating(r)} aria-label="Delete rating"><Icon name="trash" size={16} /></button>
