@@ -17,6 +17,7 @@ import { ScoreboardBody } from '../components/ScoreboardCard';
 import LeadOfMonthBanner from '../components/LeadOfMonth';
 import { celebrate } from '../components/Celebrate';
 import { useCleaning } from '../lib/useCleaning';
+import { addUp, useLeadPoints, withDefaults } from '../lib/usePoints';
 import { RequestCard, useKitchenRequests } from './Notes';
 import { NoteCard as CoachNoteCard, followUpDue, useCoachingNotes } from './Coaching';
 import type { KitchenRequest } from '../lib/types';
@@ -80,6 +81,23 @@ interface Req {
   title: string;
   sub: string;
   to: string;
+  /** Points the Shift Lead earns for it, e.g. "+10". */
+  pts?: string;
+}
+
+/** How many photos of the closing shift's waste are in today. */
+function useNightWastePhotos(today: string, shift: string | undefined) {
+  const [n, setN] = useState(0);
+  const load = useCallback(async () => {
+    if (!shift) return;
+    const { data } = await supabase.from('waste_entries').select('id').eq('log_date', today).eq('shift', shift).not('photo_path', 'is', null);
+    setN((data ?? []).length);
+  }, [today, shift]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  useRealtime(['waste_entries'], load);
+  return n;
 }
 
 function ShiftView() {
@@ -90,6 +108,10 @@ function ShiftView() {
   const { entries, entryFor } = useSchedule(addDays(today, -1), addDays(today, 13));
   const { items: cleaning, loading: loadingCleaning } = useCleaning(today);
   const ready = !loadingLists && !loadingHandoffs && !loadingCleaning;
+  const pv = withDefaults(settings.point_values);
+  const pts = (n: number, each = false) => (n > 0 ? `+${n}${each ? ' each' : ''}` : undefined);
+  const closingShift = shiftNames[shiftNames.length - 1];
+  const nightPhotos = useNightWastePhotos(today, settings.waste_photo_at_close ? closingShift : undefined);
 
   const tone = shiftTone(shiftNames, shift);
   const current = shiftNames.indexOf(shift);
@@ -124,6 +146,7 @@ function ShiftView() {
         title: p.template.name,
         sub: p.done === p.total ? 'All tasks done' : `${p.done} of ${p.total} tasks${p.template.frequency === 'weekly' ? ' · this week' : ''}`,
         to: `/checklists/${p.template.id}`,
+        pts: p.template.frequency === 'daily' ? pts(pv.checklist) : undefined,
       });
     }
     const jobs = cleaning.filter((i) => i.task.shift === s && i.status !== 'later');
@@ -137,6 +160,18 @@ function ShiftView() {
         title: 'Cleaning',
         sub: jobsDone === jobs.length ? 'All cleaning jobs done' : `${jobsDone} of ${jobs.length} jobs done${late ? ` · ${late} overdue` : ''}`,
         to: `/cleaning?shift=${encodeURIComponent(s)}`,
+        pts: pts(pv.cleaning, true),
+      });
+    }
+    if (isClose && settings.waste_photo_at_close) {
+      reqs.push({
+        key: 'waste-photo',
+        done: nightPhotos > 0,
+        icon: 'trash',
+        title: 'Photo of tonight’s waste',
+        sub: nightPhotos > 0 ? `${nightPhotos} photo${nightPhotos === 1 ? '' : 's'} in · add one with each entry` : 'Take a photo with each waste entry at close',
+        to: '/waste',
+        pts: pts(pv.waste_photo),
       });
     }
     reqs.push({
@@ -146,6 +181,7 @@ function ShiftView() {
       title: `${isClose ? 'Close-out' : 'Shift swap'} photos and notes`,
       sub: h?.submitted_at ? `Submitted by ${h.submitted_by_name} at ${formatTime(h.submitted_at)}` : photos ? `${photos} photo${photos === 1 ? '' : 's'} so far · not submitted` : 'Photos required before you leave',
       to: '/handoff',
+      pts: pts(pv.handoff),
     });
     const left = reqs.filter((r) => !r.done).length;
     const status = j === current ? 'now' : j < current ? (left ? 'missed' : 'done') : 'later';
@@ -211,6 +247,7 @@ function ShiftView() {
                       <strong>{r.title}</strong>
                       <small>{r.sub}</small>
                     </span>
+                    {r.pts && <span className={`pts-pill ${r.done ? 'earned' : ''}`} title="Points for the Shift Lead">{r.pts}</span>}
                     <span className="sr-only">{r.done ? 'Done' : 'To do'}</span>
                     <Icon name="chevron" size={18} />
                   </Link>
@@ -300,8 +337,10 @@ function NotesForYou({ leadId }: { leadId: string }) {
 
 /** A lead's own score, for HOH Leads allowed to see scores. */
 function MyScoreCard({ leadId }: { leadId: string }) {
-  const { today, shift } = useApp();
+  const { today, shift, settings } = useApp();
   const { records, shifts, loading } = useScores();
+  const { byLead } = useLeadPoints(addDays(today, -29), today);
+  const myPoints = addUp(byLead.get(leadId) ?? [], withDefaults(settings.point_values));
   if (loading) return null;
   const s = statsFor(leadId, records, shifts, '30d', today, { date: today, shift });
   const streak = streakFor(leadId, records);
@@ -312,6 +351,7 @@ function MyScoreCard({ leadId }: { leadId: string }) {
       <span className="my-score-row">
         <span className="stat-value">{fmtAvg(s.avg)}<small>/ 5</small></span>
         <span className="muted small">{s.count} rating{s.count === 1 ? '' : 's'}</span>
+        <span className="points-total">{myPoints.total.toLocaleString()} <small>pts</small></span>
         {streak >= 3 && <span className="streak"><Icon name="flame" size={12} /> {streak} in a row at 4+</span>}
       </span>
       {latest && (

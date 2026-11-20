@@ -26,6 +26,7 @@ import { usePositions } from '../lib/usePositions';
 import { accountAction } from '../lib/passkeys';
 import { removeFiles, uploadFile } from '../lib/files';
 import { everyLabel } from '../lib/useCleaning';
+import { POINT_LABELS, withDefaults } from '../lib/usePoints';
 import Fold from '../components/Fold';
 
 type Tab = 'store' | 'scores' | 'leads' | 'checklists' | 'cleaning' | 'positions' | 'equipment' | 'team';
@@ -40,11 +41,11 @@ export default function Setup() {
     ['store', 'Store', 'Name, shift times, phone notifications'],
     ['team', 'People', 'Team accounts, roles and sign-in'],
     ['leads', 'HOH Leads', 'Names on the schedule and linked accounts'],
-    ['scores', 'Lead scores', 'Who sees scores and what gets rated'],
+    ['scores', 'Lead scores', 'Points, who sees scores, and what gets rated'],
     ['checklists', 'Checklists', 'HOH Lead checklists and photo tasks'],
     ['cleaning', 'Cleaning', 'Cleaning jobs for the Cleaning Hub: area, how often, which shift'],
     ['positions', 'Positions', 'Printed checklist for each position'],
-    ['equipment', 'Waste Log', 'Items, reasons and units for the Waste Log'],
+    ['equipment', 'Waste Log', 'Night waste photos, and items, reasons and units for the Waste Log'],
   ];
   const current = tabs.find((t) => t[0] === tab) ?? tabs[0];
 
@@ -71,6 +72,7 @@ export default function Setup() {
       {tab === 'positions' && <PositionsEditor />}
       {tab === 'equipment' && (
         <div className="stack">
+          <WastePhotoSetting />
           <WasteItemsEditor />
           <WasteOptions />
         </div>
@@ -229,11 +231,78 @@ function StoreEditor() {
   );
 }
 
+function PointInput({ value, onSave, label }: { value: number; onSave: (n: number) => void; label: string }) {
+  const [v, setV] = useState(String(value));
+  useEffect(() => setV(String(value)), [value]);
+  return (
+    <span className="point-input">
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={100}
+        value={v}
+        aria-label={label}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          const n = Math.round(Number(v));
+          if (!Number.isFinite(n) || n < 0 || n > 100) setV(String(value));
+          else if (n !== value) onSave(n);
+        }}
+        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+      />
+      pts
+    </span>
+  );
+}
+
+function PointsEditor() {
+  const { settings } = useApp();
+  const save = useSaveSettings();
+  const v = withDefaults(settings.point_values);
+  const keys = Object.keys(POINT_LABELS) as (keyof typeof POINT_LABELS)[];
+  return (
+    <section className="card">
+      <SectionIntro title="Points">
+        Every shift earns points for its Shift Lead, and they add up on Lead Scores. Set what each thing is worth (0 turns it off). Changing a number recounts every shift.
+      </SectionIntro>
+      <ul className="points-edit">
+        {keys.map((k) => (
+          <li key={k}>
+            <span><strong>{POINT_LABELS[k].label}</strong><small>{POINT_LABELS[k].each}</small></span>
+            <PointInput value={v[k]} label={`Points for ${POINT_LABELS[k].label}`} onSave={(n) => save({ point_values: { ...v, [k]: n } }, `${POINT_LABELS[k].label}: ${n} points`)} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function WastePhotoSetting() {
+  const { settings, shiftNames } = useApp();
+  const save = useSaveSettings();
+  const closing = shiftNames[shiftNames.length - 1] ?? 'PM';
+  const on = settings.waste_photo_at_close;
+  return (
+    <section className="card">
+      <SectionIntro title="Photos of the waste at night">
+        When this is on, waste logged on the {closing} shift needs a photo, and the {closing} shift's list on Home asks for a photo of tonight's waste.
+      </SectionIntro>
+      <label className={`toggle ${on ? 'toggle-on' : ''}`}>
+        <input type="checkbox" checked={on} onChange={(e) => save({ waste_photo_at_close: e.target.checked }, e.target.checked ? `Photos required on the ${closing} shift` : 'Waste photos are optional')} />
+        <span className="toggle-track" aria-hidden="true"><span /></span>
+        <span>{on ? `Required on the ${closing} shift` : 'Optional'}</span>
+      </label>
+    </section>
+  );
+}
+
 function ScoresSettings() {
   const { settings } = useApp();
   const save = useSaveSettings();
   return (
     <div className="setup-grid">
+      <PointsEditor />
       <ScoresVisibilityEditor />
       <section className="card">
         <SectionIntro title="What the incoming shift rates">

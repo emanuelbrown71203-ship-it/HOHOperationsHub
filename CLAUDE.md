@@ -42,7 +42,11 @@ admins can switch to the **Overview** (scores, needs attention); the choice is r
 The owner does **not** want to track equipment: no equipment list, no fryer logs. "Equipment & Supplies" is
 only a message board (something broken / something needed, like oven mitts). The **Cleaning Hub** is
 cleaning jobs for the whole HOH: each repeats every N days, belongs to an area and a shift (or any shift),
-can require a photo; due/overdue is worked out in `src/lib/useCleaning.ts`; admins edit jobs in Setup → Cleaning. Menu, phone tabs and More page all come
+can require a photo; due/overdue is worked out in `src/lib/useCleaning.ts`; admins edit jobs in Setup → Cleaning.
+**Lead points** add up per Shift Lead: the database function `lead_points_by_shift` says what each shift got
+done (finished daily checklists, handoff, rating stars, cleaning jobs, night waste photo) and the app
+multiplies by `app_settings.point_values` (Setup → Lead scores), so changing a value recounts history.
+Waste logged on the closing shift needs a photo (`waste_photo_at_close`, Setup → Waste Log). Menu, phone tabs and More page all come
 from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Code map
@@ -57,7 +61,7 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Database (Supabase project `khtuqripoqqlzqdkrwym`)
 
-- Schema in `supabase/migrations/` (0001-0014). Apply new ones with the Supabase `apply_migration` tool and
+- Schema in `supabase/migrations/` (0001-0015). Apply new ones with the Supabase `apply_migration` tool and
   also commit the file. **0008 has not been applied**; the owner was asked to run it in the SQL editor.
 - Row-level security on every table. Names on entries are filled in by the database (attribution triggers,
   `actor_name()`), never sent by the app. Write rules for who can do what in SQL policies/functions, then

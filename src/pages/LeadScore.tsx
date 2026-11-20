@@ -7,6 +7,9 @@ import type { RatingRecord } from '../lib/types';
 import { categoryAverages, fmtAvg, pct, rangeWindow, statsFor, streakFor, useScoreRange, useScores, weeklySeries } from '../lib/useScores';
 import { CategoryChips } from './Handoff';
 import { LeadCoachingSection } from './Coaching';
+import { Breakdown, PointRules } from '../components/PointsBoard';
+import Fold from '../components/Fold';
+import { addUp, pointsFor, useLeadPoints, withDefaults } from '../lib/usePoints';
 import { Delta, StarBreakdown, StatTile, TrendChart } from '../components/ScoreCharts';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import Icon from '../components/Icon';
@@ -24,6 +27,8 @@ export default function LeadScore() {
   const [moving, setMoving] = useState<RatingRecord | null>(null);
   const lead = leads.find((l) => l.id === id);
   const { start } = rangeWindow(range, today);
+  const { byLead: pointsByLead } = useLeadPoints(start ?? '2000-01-01', today);
+  const pv = withDefaults(settings.point_values);
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
   if (!lead) {
@@ -78,6 +83,36 @@ export default function LeadScore() {
           note={s.shiftsLed ? `${s.submitted} of ${s.shiftsLed} shifts` : 'No shifts recorded'}
         />
       </div>
+
+      {(() => {
+        const myShifts = pointsByLead.get(lead.id) ?? [];
+        const p = addUp(myShifts, pv);
+        return (
+          <section className="card points-card">
+            <div className="card-head">
+              <h2><span className="dot" />Points</h2>
+              <span className="points-total big">{p.total.toLocaleString()} <small>pts</small></span>
+            </div>
+            <Breakdown b={p} />
+            <PointRules />
+            {myShifts.length > 0 && (
+              <Fold title={`Shift by shift (${myShifts.length})`} summary={`Latest: ${formatDay(myShifts[0].shift_date)} ${myShifts[0].shift}, ${pointsFor(myShifts[0], pv).total} pts`}>
+                <ul className="plain-list">
+                  {myShifts.map((r) => {
+                    const b = pointsFor(r, pv);
+                    return (
+                      <li key={`${r.shift_date}-${r.shift}`}>
+                        <span><strong>{formatDay(r.shift_date)}</strong> · {r.shift} <Breakdown b={b} /></span>
+                        <b>{b.total}</b>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Fold>
+            )}
+          </section>
+        );
+      })()}
 
       <div className="score-grid">
         <section className="card">

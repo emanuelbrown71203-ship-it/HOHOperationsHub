@@ -77,6 +77,7 @@ export interface WasteEntry {
   notes: string | null;
   user_id: string | null;
   performed_by_name: string;
+  photo_path: string | null;
 }
 
 export interface Equipment {
@@ -319,6 +320,18 @@ export interface AppSettings {
   notify_kinds: Record<NotifyKind, boolean>;
   /** When close-out should be done (the last shift "ends" here, for handoff reminders). */
   close_time: string;
+  /** Waste logged on the closing shift needs a photo. */
+  waste_photo_at_close: boolean;
+  /** Points a Shift Lead earns for each thing their shift gets done. */
+  point_values: PointValues;
+}
+
+export interface PointValues {
+  checklist: number;
+  handoff: number;
+  star: number;
+  cleaning: number;
+  waste_photo: number;
 }
 
 export type NotifyKind = 'schedule' | 'reminder' | 'handoff_missed' | 'requests' | 'ratings';
@@ -339,6 +352,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   timezone: 'America/New_York',
   notify_kinds: { schedule: true, reminder: true, handoff_missed: true, requests: true, ratings: true },
   close_time: '23:00',
+  waste_photo_at_close: true,
+  point_values: { checklist: 10, handoff: 5, star: 2, cleaning: 1, waste_photo: 5 },
 };
 
 const LEGACY_LOG_LABELS: Record<string, string> = {

@@ -5,6 +5,8 @@ import { downloadCsv } from '../lib/csv';
 import { SCORES_VISIBILITY_LABELS, type RatingRecord } from '../lib/types';
 import { SCORE_RANGES, categoryAverages, fmtAvg, pct, rangeWindow, statsFor, streakFor, useScoreRange, useScores, type ScoreRange } from '../lib/useScores';
 import LeadOfMonthBanner from '../components/LeadOfMonth';
+import PointsBoard from '../components/PointsBoard';
+import { useLeadPoints } from '../lib/usePoints';
 import { CategoryChips } from './Handoff';
 import { Delta, Meter, StatTile } from '../components/ScoreCharts';
 import Stars from '../components/Stars';
@@ -48,6 +50,7 @@ export default function Scores() {
   const [params] = useSearchParams();
   const range = useScoreRange(params);
   const { records, shifts, leads, loading } = useScores();
+  const { byLead: pointsByLead } = useLeadPoints(rangeWindow(range, today).start ?? '2000-01-01', today);
   const current = { date: today, shift };
   const { start } = rangeWindow(range, today);
   const inRange = records.filter((r) => !start || r.shift_date >= start);
@@ -93,6 +96,7 @@ export default function Scores() {
       ) : (
         <>
           <LeadOfMonthBanner />
+          <PointsBoard leads={leads} byLead={pointsByLead} range={range} periodLabel={SCORE_RANGES.find((r) => r.key === range)?.label ?? ''} />
           <div className="stat-row">
             <StatTile
               label="Store average"
@@ -115,7 +119,7 @@ export default function Scores() {
 
           <section className="card">
             <div className="card-head">
-              <h2><span className="dot" />HOH Leads</h2>
+              <h2><span className="dot" />Star ratings</h2>
               <span className="muted small">Average stars · tap a lead for their full record</span>
             </div>
             {rows.length === 0 ? (

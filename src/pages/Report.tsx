@@ -6,6 +6,8 @@ import { addDays } from '../lib/dates';
 import { categoryAverages, fmtAvg, monthName, monthStart, pct, prevMonth } from '../lib/useScores';
 import type { ChecklistCheck, ChecklistItem, ChecklistTemplate, CleaningLog, CleaningTask, CoachingNote, HohLead, KitchenRequest, LeadOfMonth, RatingRecord, WasteEntry } from '../lib/types';
 import { useCleaning } from '../lib/useCleaning';
+import { addUp, withDefaults, type ShiftPoints } from '../lib/usePoints';
+import type { PointValues } from '../lib/types';
 import { Meter } from '../components/ScoreCharts';
 import Icon from '../components/Icon';
 
@@ -27,6 +29,7 @@ interface Data {
   items: ChecklistItem[];
   coaching: CoachingNote[];
   cleaningLogs: CleaningLog[];
+  points: ShiftPoints[];
   cleaningTasks: CleaningTask[];
   winner: LeadOfMonth | null;
 }
@@ -45,7 +48,7 @@ export default function Report() {
   const load = useCallback(async () => {
     setD(null);
     const range = <T,>(q: T & { gte: (c: string, v: string) => T & { lte: (c: string, v: string) => PromiseLike<{ data: unknown }> } }, col: string) => q.gte(col, month).lte(col, end);
-    const [records, shifts, leads, waste, requests, open, checks, templates, items, coaching, winner, cleaningLogs, cleaningTasks] = await Promise.all([
+    const [records, shifts, leads, waste, requests, open, checks, templates, items, coaching, winner, cleaningLogs, cleaningTasks, points] = await Promise.all([
       range(supabase.from('lead_rating_history').select('*') as never, 'shift_date'),
       range(supabase.from('shift_handoffs').select('lead_id,submitted_at,shift_date,shift').not('lead_id', 'is', null) as never, 'shift_date'),
       supabase.from('hoh_leads').select('*').order('sort_order'),
@@ -59,6 +62,7 @@ export default function Report() {
       supabase.rpc('lead_of_month', { p_month: month }),
       range(supabase.from('cleaning_logs').select('*') as never, 'done_on'),
       supabase.from('cleaning_tasks').select('*'),
+      supabase.rpc('lead_points_by_shift', { p_from: month, p_to: end }),
     ]);
     const rows = <T,>(r: { data: unknown }) => (r.data as T[]) ?? [];
     setD({
@@ -73,6 +77,7 @@ export default function Report() {
       items: rows(items),
       coaching: rows(coaching),
       cleaningLogs: rows(cleaningLogs),
+      points: rows<ShiftPoints>(points).map((r) => ({ ...r, stars: r.stars === null ? null : Number(r.stars) })),
       cleaningTasks: rows(cleaningTasks),
       winner: (winner.data as LeadOfMonth) ?? null,
     });
@@ -99,22 +104,23 @@ export default function Report() {
         </div>
       </div>
 
-      {!d ? <div className="spinner" /> : <Body d={d} today={today} shift={shift} month={month} through={through} cats={settings.rating_categories} overdueNow={overdueNow} />}
+      {!d ? <div className="spinner" /> : <Body d={d} today={today} shift={shift} month={month} through={through} cats={settings.rating_categories} overdueNow={overdueNow} pv={withDefaults(settings.point_values)} />}
     </div>
   );
 }
 
-function Body({ d, today, shift, month, through, cats, overdueNow }: { d: Data; today: string; shift: string; month: string; through: string; cats: string[]; overdueNow: string[] }) {
+function Body({ d, today, shift, month, through, cats, overdueNow, pv }: { d: Data; today: string; shift: string; month: string; through: string; cats: string[]; overdueNow: string[]; pv: PointValues }) {
   const led = d.shifts.filter((s) => !(s.shift_date === today && s.shift === shift));
   const storeAvg = avg(d.records.map((r) => r.score));
   const leadRows = d.leads
     .map((l) => {
       const mine = d.records.filter((r) => r.lead_id === l.id);
       const shifts = led.filter((s) => s.lead_id === l.id);
-      return { lead: l, avg: avg(mine.map((r) => r.score)), count: mine.length, shifts: shifts.length, submitted: shifts.filter((s) => s.submitted_at).length, cats: categoryAverages(mine, cats) };
+      const points = addUp(d.points.filter((p) => p.lead_id === l.id), pv).total;
+      return { lead: l, points, avg: avg(mine.map((r) => r.score)), count: mine.length, shifts: shifts.length, submitted: shifts.filter((s) => s.submitted_at).length, cats: categoryAverages(mine, cats) };
     })
-    .filter((r) => r.count > 0 || r.shifts > 0)
-    .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || b.count - a.count);
+    .filter((r) => r.count > 0 || r.shifts > 0 || r.points > 0)
+    .sort((a, b) => b.points - a.points || (b.avg ?? -1) - (a.avg ?? -1));
   const storeCats = categoryAverages(d.records, cats);
   const catNames = storeCats.map((c) => c.name);
 
@@ -158,7 +164,7 @@ function Body({ d, today, shift, month, through, cats, overdueNow }: { d: Data; 
             <table className="report-table">
               <thead>
                 <tr>
-                  <th scope="col">Lead</th><th scope="col" className="num">Average</th><th scope="col" className="num">Rated</th><th scope="col" className="num">Shifts led</th><th scope="col" className="num">Handoffs</th>
+                  <th scope="col">Lead</th><th scope="col" className="num">Points</th><th scope="col" className="num">Average</th><th scope="col" className="num">Rated</th><th scope="col" className="num">Shifts led</th><th scope="col" className="num">Handoffs</th>
                   {catNames.map((c) => <th key={c} scope="col" className="num">{c}</th>)}
                 </tr>
               </thead>
@@ -166,7 +172,8 @@ function Body({ d, today, shift, month, through, cats, overdueNow }: { d: Data; 
                 {leadRows.map((r) => (
                   <tr key={r.lead.id}>
                     <th scope="row">{r.lead.name}</th>
-                    <td className="num"><strong>{fmtAvg(r.avg)}</strong></td>
+                    <td className="num"><strong>{r.points.toLocaleString()}</strong></td>
+                    <td className="num">{fmtAvg(r.avg)}</td>
                     <td className="num">{r.count}</td>
                     <td className="num">{r.shifts}</td>
                     <td className="num">{pct(r.submitted, r.shifts) === null ? '–' : `${pct(r.submitted, r.shifts)}%`}</td>

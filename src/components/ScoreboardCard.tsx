@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { formatDay } from '../lib/dates';
 import { fmtAvg, pct, statsFor, streakFor, useScores } from '../lib/useScores';
+import { addUp, useLeadPoints, withDefaults } from '../lib/usePoints';
+import { addDays } from '../lib/dates';
 import { Delta, Meter } from './ScoreCharts';
 import Stars from './Stars';
 import Icon from './Icon';
@@ -16,7 +18,10 @@ export default function ScoreboardCard() {
 }
 
 export function ScoreboardBody({ records, shifts, leads, loading }: ScoreData) {
-  const { today, shift } = useApp();
+  const { today, shift, settings } = useApp();
+  const { byLead: points } = useLeadPoints(addDays(today, -29), today);
+  const pv = withDefaults(settings.point_values);
+  const ptsOf = (id: string) => addUp(points.get(id) ?? [], pv).total;
   const current = { date: today, shift };
   const store = statsFor(null, records, shifts, '30d', today, current);
   const ranked = leads
@@ -69,7 +74,7 @@ export function ScoreboardBody({ records, shifts, leads, loading }: ScoreData) {
                       <span className="meter-name">
                         <strong>{lead.name}</strong>
                         <small>
-                          {s.count} rating{s.count === 1 ? '' : 's'}
+                          {s.count} rating{s.count === 1 ? '' : 's'} · <b className="pts-inline">{ptsOf(lead.id).toLocaleString()} pts</b>
                           {streak >= 3 && <span className="streak"><Icon name="flame" size={12} /> {streak} in a row at 4+</span>}
                           {s.avg !== null && s.avg < 3 && s.count >= 3 && (
                             <span className="flag"><Icon name="alert" size={12} /> Needs attention</span>

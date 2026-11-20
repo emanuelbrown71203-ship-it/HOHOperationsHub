@@ -9,9 +9,22 @@ import RangePicker, { rangeTitle, useRange } from '../components/RangePicker';
 import Icon from '../components/Icon';
 import Modal from '../components/Modal';
 import { useConfirm } from '../components/Confirm';
+import { PhotoPicker, PhotoThumb } from '../components/Photo';
+import { removeFiles, uploadFile } from '../lib/files';
 
 export default function Waste() {
-  const { today, shift, ensureActor, actorLeadId, actorName, toast, session, isManager, settings } = useApp();
+  const { today, shift, shiftNames, ensureActor, actorLeadId, actorName, toast, session, isManager, settings } = useApp();
+  // Night waste photos: on the closing shift a photo is required (switch in Setup → Waste Log).
+  const closing = shiftNames[shiftNames.length - 1];
+  const photoRequired = settings.waste_photo_at_close && shift === closing;
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!photo) return setPreview(null);
+    const u = URL.createObjectURL(photo);
+    setPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [photo]);
   const confirm = useConfirm();
   const [editing, setEditing] = useState<WasteEntry | null>(null);
 
@@ -46,24 +59,35 @@ export default function Waste() {
     if (!item.trim()) return toast('Choose or type an item', 'error');
     if (!(qty > 0)) return toast('Enter a quantity greater than 0', 'error');
     if (!reason) return toast('Choose a reason', 'error');
+    if (photoRequired && !photo) return toast(`Take a photo of the waste first (required on the ${shift} shift)`, 'error');
     setSaving(true);
-    const { error } = await supabase.from('waste_entries').insert({
-      item_name: item.trim(),
-      quantity: qty,
-      unit,
-      reason,
-      notes: notes.trim() || null,
-      shift,
-      log_date: today,
-      lead_id: actorLeadId,
-    });
+    let photo_path: string | null = null;
+    try {
+      if (photo) photo_path = (await uploadFile(`waste/${today}`, photo)).path;
+      const { error } = await supabase.from('waste_entries').insert({
+        item_name: item.trim(),
+        quantity: qty,
+        unit,
+        reason,
+        notes: notes.trim() || null,
+        shift,
+        log_date: today,
+        lead_id: actorLeadId,
+        photo_path,
+      });
+      if (error) throw error;
+    } catch (err) {
+      if (photo_path) await removeFiles([photo_path]);
+      setSaving(false);
+      return toast(errorMessage(err), 'error');
+    }
     setSaving(false);
-    if (error) return toast(errorMessage(error), 'error');
     toast(`Logged ${qty} ${unit} ${item.trim()}`);
     setItem('');
     setQuantity('1');
     setReason('');
     setNotes('');
+    setPhoto(null);
     load();
   }
 
@@ -90,6 +114,7 @@ export default function Waste() {
     load();
   }, [load]);
   useRealtime(['waste_entries'], load);
+  const tonightPhotos = entries.filter((e) => e.log_date === today && e.shift === closing && e.photo_path).length;
 
   const totals = useMemo(() => {
     const byItem = new Map<string, { item: string; unit: string; qty: number; count: number }>();
@@ -130,6 +155,17 @@ export default function Waste() {
         <span className="page-icon"><Icon name="trash" size={22} /></span>
         <h1>Waste Log</h1>
       </div>
+
+      {photoRequired && (
+        <div className={`banner ${tonightPhotos ? 'banner-ok' : 'banner-warn'}`}>
+          <Icon name={tonightPhotos ? 'done' : 'camera'} />
+          <span>
+            {tonightPhotos
+              ? <><strong>Tonight’s waste: {tonightPhotos} photo{tonightPhotos === 1 ? '' : 's'} in.</strong> Keep adding one with each entry.</>
+              : <><strong>Take a photo of the waste with every entry tonight.</strong> It’s required on the {shift} shift and counts toward the Shift Lead’s points.</>}
+          </span>
+        </div>
+      )}
 
       <div className="two-col">
         <form className="card" onSubmit={submit}>
@@ -181,6 +217,17 @@ export default function Waste() {
             <span>Notes (optional)</span>
             <input value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
+
+          <div className="field">
+            <span>Photo of the waste {photoRequired ? '(required tonight)' : '(optional)'}</span>
+            <div className="row-gap wrap">
+              {preview && <img className="photo-preview" src={preview} alt="" />}
+              <PhotoPicker onFiles={(f) => setPhoto(f[0])} multiple={false} className={photoRequired && !photo ? 'btn btn-primary' : 'btn btn-ghost'}>
+                {photo ? 'Retake photo' : 'Take a photo'}
+              </PhotoPicker>
+              {photo && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>Remove</button>}
+            </div>
+          </div>
 
           <button className="btn btn-primary btn-block" disabled={saving}>
             {saving ? 'Saving…' : 'Log waste'}
@@ -243,6 +290,7 @@ export default function Waste() {
                   const canDelete = e.user_id === session?.user.id || isManager;
                   return (
                     <li key={e.id} className="entry">
+                      {e.photo_path && <PhotoThumb path={e.photo_path} label={`${e.item_name}, ${formatDateTime(e.logged_at)}`} />}
                       <div className="entry-main">
                         <strong>{+Number(e.quantity).toFixed(2)} {e.unit} · {e.item_name}</strong>
                         <span className="muted small">
