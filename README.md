@@ -66,6 +66,8 @@ The database fills in the name itself, so it can't be faked or edited afterward.
 
 **Admin** is a switch on top of any role (Setup → People). Admins configure the app: everything in **Setup**, team accounts (approve, change roles, sign-in codes, delete accounts) and who can see lead scores. A Director without the Admin switch can't change the setup. There is always at least one admin, and the very first account becomes Director + Admin automatically.
 
+**View the app as another role** (admins, Account → View the app as…): see exactly what the store tablet, a particular HOH Lead, a team member, a director without Setup, or a new sign-up sees. A purple banner stays on top with Switch and Exit. Logging is switched off during the preview, so nothing is saved under the wrong name, and the store tablet's Shift Lead isn't changed.
+
 ## First-time setup (do this once)
 
 1. **Passkeys are switched on** in Supabase (Authentication → Passkeys), with `hoh-operations-hub.vercel.app` as the passkey address.

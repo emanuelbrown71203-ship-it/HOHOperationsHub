@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from './supabase';
+import { setPreviewGuard, supabase } from './supabase';
 import { localDate, shiftForTime } from './dates';
-import { DEFAULT_SETTINGS, type AppSettings, type HohLead, type Profile } from './types';
+import { DEFAULT_SETTINGS, type AppSettings, type HohLead, type Profile, type Role } from './types';
 import { useRealtime } from './useRealtime';
 
 /* ------------------------------------------------------------------ */
@@ -24,6 +24,25 @@ interface StoredShift { date: string; autoShift: string; shift: string }
 export type ThemeChoice = 'light' | 'dark' | 'auto';
 
 const LEAD_KEY = 'hoh.shiftLead';
+const PREVIEW_KEY = 'hoh.preview';
+
+/** An admin looking at the app the way another role sees it. Logging is switched off while previewing. */
+export interface Preview {
+  role: Role;
+  isAdmin: boolean;
+  /** For an HOH Lead preview: which lead. */
+  leadId: string | null;
+  label: string;
+}
+
+function readPreview(): Preview | null {
+  try {
+    const raw = sessionStorage.getItem(PREVIEW_KEY);
+    return raw ? (JSON.parse(raw) as Preview) : null;
+  } catch {
+    return null;
+  }
+}
 const SHIFT_KEY = 'hoh.shiftOverride';
 const THEME_KEY = 'hoh.theme';
 
@@ -50,7 +69,15 @@ function writeJson(key: string, value: unknown) {
 interface AppState {
   session: Session | null;
   loading: boolean;
+  /** The profile the app is shown for (the previewed role while previewing). */
   profile: Profile | null;
+  /** The signed-in person's own profile, even while previewing. */
+  realProfile: Profile | null;
+  /** The signed-in person is an admin (even while previewing another role). */
+  realIsAdmin: boolean;
+  preview: Preview | null;
+  startPreview: (p: Preview) => void;
+  endPreview: () => void;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
   isManager: boolean;
@@ -159,6 +186,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const active = !!profile && profile.role !== 'pending';
 
+  /* ---- view as another role (admins only) ---- */
+  const realIsAdmin = !!profile?.is_admin && profile.role !== 'pending';
+  const [previewState, setPreviewState] = useState<Preview | null>(readPreview);
+  const preview = realIsAdmin ? previewState : null;
+  setPreviewGuard(preview?.label ?? null); // refuse saves at the connection too (see supabase.ts)
+  const startPreview = useCallback((p: Preview) => {
+    setPreviewState(p);
+    try {
+      sessionStorage.setItem(PREVIEW_KEY, JSON.stringify(p));
+    } catch {
+      /* this tab only */
+    }
+  }, []);
+  const endPreview = useCallback(() => {
+    setPreviewState(null);
+    try {
+      sessionStorage.removeItem(PREVIEW_KEY);
+    } catch {
+      /* this tab only */
+    }
+  }, []);
+  // Everything below that depends on the role uses `view`.
+  const view: Profile | null = preview && profile ? { ...profile, role: preview.role, is_admin: preview.isAdmin } : profile;
+
   /* ---- HOH leads list + store settings ---- */
   const loadLeads = useCallback(async () => {
     if (!active) return;
@@ -235,7 +286,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [today, shift],
   );
 
-  const isKitchen = profile?.role === 'kitchen';
+  const isKitchen = view?.role === 'kitchen';
 
   /* ---- the shared device picks up the scheduled Shift Lead by itself ---- */
   // Someone can still tap the Shift Lead chip to change it; that choice sticks for the shift.
@@ -255,11 +306,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (leads.some((l) => l.id === scheduledLead.leadId)) setLeadId(scheduledLead.leadId);
   }, [isKitchen, leadId, scheduledLead, today, shift, storedLead, leads, setLeadId]);
 
-  const actorName = isKitchen ? leads.find((l) => l.id === leadId)?.name ?? null : profile?.full_name || null;
-  const myLeadId = isKitchen ? leadId : leads.find((l) => l.profile_id && l.profile_id === profile?.id)?.id ?? null;
-  const isDirectorRole = profile?.role === 'director';
-  const isAdmin = !!profile?.is_admin && profile.role !== 'pending';
-  const isManagerRole = profile?.role === 'lead' || isDirectorRole || isAdmin;
+  const previewLead = preview?.leadId ? leads.find((l) => l.id === preview.leadId) ?? null : null;
+  const actorName = isKitchen ? leads.find((l) => l.id === leadId)?.name ?? null : previewLead?.name ?? (profile?.full_name || null);
+  const myLeadId = isKitchen ? leadId : preview ? previewLead?.id ?? null : leads.find((l) => l.profile_id && l.profile_id === profile?.id)?.id ?? null;
+  const isDirectorRole = view?.role === 'director';
+  const isAdmin = !!view?.is_admin && view.role !== 'pending';
+  const isManagerRole = view?.role === 'lead' || isDirectorRole || isAdmin;
   const canViewScores =
     isDirectorRole || isAdmin || (settings.scores_visibility === 'managers' && isManagerRole) || (settings.scores_visibility === 'everyone' && active);
 
@@ -267,14 +319,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Ratings of this shift are credited to the lead recorded here.
   const recorded = useRef<string | null>(null);
   useEffect(() => {
-    if (!isKitchen || !leadId) return;
+    if (!isKitchen || !leadId || preview) return; // never record a Shift Lead from a preview
     const key = `${today}|${shift}|${leadId}`;
     if (recorded.current === key) return;
     recorded.current = key;
     supabase.rpc('set_shift_lead', { p_date: today, p_shift: shift, p_lead_id: leadId }).then(({ error }) => {
       if (error) toastRef.current(error.message, 'error');
     });
-  }, [isKitchen, leadId, today, shift]);
+  }, [isKitchen, leadId, today, shift, preview]);
 
   /* ---- toasts ---- */
   const toastId = useRef(0);
@@ -289,15 +341,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   toastRef.current = toast;
 
   const ensureActor = useCallback(() => {
+    if (preview) {
+      // Anything saved now would be credited to the real account, not the role being previewed.
+      toast(`You’re viewing the app as ${preview.label}. Exit the preview to log or change things.`, 'error');
+      return false;
+    }
     if (actorName) return true;
     toast(isKitchen ? 'Choose the Shift Lead first (top of the screen).' : 'Add your name in Account first.', 'error');
     return false;
-  }, [actorName, isKitchen, toast]);
+  }, [actorName, isKitchen, toast, preview]);
 
   const value: AppState = {
     session,
     loading,
-    profile,
+    profile: view,
+    realProfile: profile,
+    realIsAdmin,
+    preview,
+    startPreview,
+    endPreview,
     refreshProfile,
     signOut,
     isManager: isManagerRole,

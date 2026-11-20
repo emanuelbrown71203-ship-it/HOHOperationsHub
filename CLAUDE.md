@@ -36,7 +36,11 @@ example the theme defaults to light because the owner prefers bright).
 | Admin | `is_admin` flag on any role | Setup, team accounts, who sees scores. Always at least one admin. |
 | New sign-up | `pending` | Waiting screen until an admin approves |
 
-The first account ever created becomes Director + Admin. **Home opens "shift ready" for everyone**: the AM and
+The first account ever created becomes Director + Admin. **Admins can preview any role** (Account → View the app as…, `ViewAsCard` / `PreviewBanner` in
+`src/components/ViewAs.tsx`): `app.tsx` swaps the role in `profile` (`realProfile` keeps the real one), and
+`ensureActor()` refuses every write while previewing. As a safety net, `src/lib/supabase.ts` also refuses
+every save, upload and server-function call during a preview; a new database function that only reads must be
+added to `READ_ONLY_FUNCTIONS` there, or it fails in previews. **Home opens "shift ready" for everyone**: the AM and
 PM requirements side by side (rate the last shift, that shift's checklists, that shift's cleaning, handoff photos). Directors and
 admins can switch to the **Overview** (scores, needs attention); the choice is remembered per device.
 The owner does **not** want to track equipment: no equipment list, no fryer logs. "Equipment & Supplies" is

@@ -5,6 +5,7 @@ import { isPlaceholderEmail, passkeyErrorMessage, passkeysSupported, thisDevice,
 import { useConfirm } from '../components/Confirm';
 import { ROLE_LABELS } from '../lib/types';
 import NotificationsCard from '../components/NotificationsCard';
+import { ViewAsCard } from '../components/ViewAs';
 import { setCelebrations, useCelebrations } from '../components/Celebrate';
 import Icon from '../components/Icon';
 
@@ -97,6 +98,8 @@ export default function Account() {
       )}
 
       <NotificationsCard />
+
+      <ViewAsCard />
 
       <CelebrationsCard />
 

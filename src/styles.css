@@ -1562,3 +1562,16 @@ a, button, label, .todo-row { -webkit-tap-highlight-color: transparent; touch-ac
 .earn-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .earn-list li { display: flex; align-items: center; gap: 12px; }
 .earn-points { flex: none; min-width: 52px; text-align: center; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--c-scores) 12%, transparent); color: var(--c-scores); font-weight: 900; font-variant-numeric: tabular-nums; }
+
+/* ================= View as another role ================= */
+.preview-banner { position: sticky; top: calc(var(--topbar-h) + 6px); z-index: 15; display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 10px 8px 12px; border-radius: 14px; background: #3b2a8c; color: #fff; box-shadow: 0 8px 20px rgba(59, 42, 140, 0.28); font-size: 0.88rem; line-height: 1.25; }
+.preview-banner .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.preview-banner .grow small { font-size: 0.76rem; opacity: 0.85; }
+.preview-banner .btn { flex: none; padding-inline: 12px; }
+.preview-banner > .icon { flex: none; }
+.btn-on-dark { background: rgba(255, 255, 255, 0.16); color: #fff; border: 0; min-height: 36px; }
+.btn-on-dark:hover { background: rgba(255, 255, 255, 0.26); }
+.btn-on-dark.solid { background: #fff; color: #3b2a8c; }
+.auth-card .preview-banner { position: static; margin-bottom: 4px; }
+.view-as h2 { display: flex; align-items: center; gap: 8px; }
+.view-as .radio-list { margin: 10px 0; }

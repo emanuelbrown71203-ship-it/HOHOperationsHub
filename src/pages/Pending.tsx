@@ -2,6 +2,7 @@ import iconUrl from '../assets/icon.svg';
 import { useApp } from '../lib/app';
 import { isPlaceholderEmail } from '../lib/passkeys';
 import PasskeyNudge from '../components/PasskeyNudge';
+import { PreviewBanner } from '../components/ViewAs';
 
 export default function Pending() {
   const { profile, refreshProfile, signOut, session } = useApp();
@@ -9,6 +10,7 @@ export default function Pending() {
   return (
     <div className="auth-screen">
       <div className="auth-card">
+        <PreviewBanner noSwitch />
         <div className="auth-brand">
           <img src={iconUrl} alt="" width={52} height={52} />
           <div>

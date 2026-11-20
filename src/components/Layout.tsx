@@ -10,6 +10,7 @@ import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 import PasskeyNudge from './PasskeyNudge';
 import PullToRefresh from './PullToRefresh';
+import { PreviewBanner } from './ViewAs';
 import Celebrations from './Celebrate';
 import Modal from './Modal';
 import { MoreList } from '../pages/More';
@@ -73,7 +74,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <Icon name="user" />
               <span>
                 <small>Logging as</small>
-                {profile?.full_name}
+                {actorName ?? profile?.full_name}
               </span>
             </NavLink>
           )}
@@ -110,6 +111,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <button className="btn btn-ghost btn-sm" onClick={resetDemo}>Reset demo</button>
           </div>
         )}
+        <PreviewBanner />
         <PasskeyNudge />
         {needsLead && (
           <button className="banner banner-warn" onClick={() => setPickerOpen(true)}>
