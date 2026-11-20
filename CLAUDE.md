@@ -46,7 +46,10 @@ can require a photo; due/overdue is worked out in `src/lib/useCleaning.ts`; admi
 **Lead points** add up per Shift Lead: the database function `lead_points_by_shift` says what each shift got
 done (finished daily checklists, handoff, rating stars, cleaning jobs, night waste photo) and the app
 multiplies by `app_settings.point_values` (Setup → Lead scores), so changing a value recounts history.
-Waste logged on the closing shift needs a photo (`waste_photo_at_close`, Setup → Waste Log). Menu, phone tabs and More page all come
+Waste logged on the closing shift needs a photo (`waste_photo_at_close`, Setup → Waste Log).
+The **Leaderboard** (everyone can see it) shows only the top 5 by points for the week or month and **never
+last place or anyone's breakdown**: the owner doesn't want it to be a humiliation ritual. `leaderboard()` and
+`my_points()` (private "N more puts you on the board", personal accounts only, never on the store tablet). Menu, phone tabs and More page all come
 from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Code map
@@ -61,7 +64,7 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Database (Supabase project `khtuqripoqqlzqdkrwym`)
 
-- Schema in `supabase/migrations/` (0001-0015). Apply new ones with the Supabase `apply_migration` tool and
+- Schema in `supabase/migrations/` (0001-0016). Apply new ones with the Supabase `apply_migration` tool and
   also commit the file. **0008 has not been applied**; the owner was asked to run it in the SQL editor.
 - Row-level security on every table. Names on entries are filled in by the database (attribution triggers,
   `actor_name()`), never sent by the app. Write rules for who can do what in SQL policies/functions, then

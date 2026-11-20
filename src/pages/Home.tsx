@@ -15,6 +15,7 @@ import Stars from '../components/Stars';
 import { FocusCard, ShoutoutCard } from '../components/HomeCards';
 import { ScoreboardBody } from '../components/ScoreboardCard';
 import LeadOfMonthBanner from '../components/LeadOfMonth';
+import LeaderboardCard from '../components/Leaderboard';
 import { celebrate } from '../components/Celebrate';
 import { useCleaning } from '../lib/useCleaning';
 import { addUp, useLeadPoints, withDefaults } from '../lib/usePoints';
@@ -282,7 +283,7 @@ function ShiftView() {
         </div>
       </div>
 
-      <LeadOfMonthBanner />
+      <LeaderboardCard compact />
 
       {!isKitchen && myLeadId && (
         <div className="dash-grid">

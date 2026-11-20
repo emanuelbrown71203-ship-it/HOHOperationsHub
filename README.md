@@ -19,6 +19,7 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 - **Lead of the Month and streaks**: last month's top-rated lead (3 rated shifts minimum) shows on Home for everyone; streaks count shifts in a row at 4 stars or better.
 - **Monthly Report** (directors and admins): one printable page with scores, handoffs, checklists, waste, equipment and training.
 - **Lead points**: every shift earns points for its Shift Lead, and they add up: each daily HOH Lead checklist finished, the handoff submitted, each star of the setup rating, each cleaning job checked off, and the photo of the night's waste. Points rank the leads on Lead Scores, show on each lead's page, the Overview and the Monthly Report, and each item on Home shows what it's worth. Point values are set in Setup → Lead scores.
+- **Leaderboard**: everyone sees the top 5 HOH Leads by points this week or this month, on Home and on its own page. It never shows who's last or anyone's breakdown, and a lead who isn't on it sees only their own points (on their own phone, never the store tablet) and how many more would get them on the board.
 - **Night waste photos**: waste logged on the closing shift needs a photo (switch in Setup → Waste Log), and the PM card on Home asks for a photo of tonight's waste.
 - **Cleaning Hub**: cleaning jobs for the whole HOH, grouped by area. Each repeats every day, week, month or any number of days, belongs to the AM shift, the PM shift or either, and can require a photo. The hub shows what's left today, what's overdue, what's done (with who did it) and what's coming up; each shift's Home card has a Cleaning line. Admins edit jobs in Setup → Cleaning.
 - **Coaching Notes** (directors and admins): notes on each HOH Lead (coaching or praise), follow-up dates that show up under Needs attention, and an option to share a note with that lead. Shown on the lead's score page and in the Monthly Report.
@@ -112,6 +113,7 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0013_supplies_coaching_more_notifications.sql`: Equipment & Supplies board, Coaching Notes, more notification types and their switches
 - `0014_cleaning_hub.sql`: Cleaning Hub jobs and check-offs, with starter jobs
 - `0015_points_and_waste_photos.sql`: lead points per shift, point values, and photos on waste entries (required at close)
+- `0016_leaderboard.sql`: top-5 leaderboard (never last place) and your own points
 
 Edge functions:
 

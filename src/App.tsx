@@ -19,6 +19,7 @@ import Coaching from './pages/Coaching';
 import Report from './pages/Report';
 import Kitchen from './pages/Kitchen';
 import Cleaning from './pages/Cleaning';
+import Leaderboard from './pages/Leaderboard';
 import Account from './pages/Account';
 import ResetPassword from './pages/ResetPassword';
 
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/kitchen" element={<Kitchen />} />
         <Route path="/cleaning" element={<Cleaning />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/coaching" element={canSchedule ? <Coaching /> : <Navigate to="/" replace />} />
         <Route path="/fryers" element={<Navigate to="/kitchen" replace />} />
         <Route path="/training" element={<Navigate to="/" replace />} />

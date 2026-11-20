@@ -39,6 +39,7 @@ export const NAV_ITEMS = {
   issues: { to: '/notes', label: 'Equipment & Supplies', short: 'Supplies', hint: 'Pass along something broken or something the kitchen needs', icon: 'wrench', section: 'notes' },
   waste: { to: '/waste', label: 'Waste Log', short: 'Waste', hint: 'Record food that was thrown away, and why', icon: 'trash', section: 'waste' },
   schedule: { to: '/schedule', label: 'Lead Schedule', short: 'Schedule', hint: 'Who leads each AM and PM shift', icon: 'calendar', section: 'schedule' },
+  leaderboard: { to: '/leaderboard', label: 'Leaderboard', short: 'Leaders', hint: 'The top 5 HOH Leads by points, this week and this month', icon: 'trophy', section: 'scores' },
   scores: { to: '/scores', label: 'Lead Scores', short: 'Scores', hint: 'Star ratings and performance for each HOH Lead', icon: 'trophy', section: 'scores', show: (c) => c.canViewScores },
   coaching: { to: '/coaching', label: 'Coaching Notes', short: 'Coaching', hint: 'What you talked about with each lead, praise, and follow-ups', icon: 'edit', section: 'scores', show: (c) => c.canSchedule },
   report: { to: '/report', label: 'Monthly Report', hint: 'One printable page: scores, coaching, handoffs, waste, equipment and supplies', icon: 'file', section: 'scores', show: (c) => c.canSchedule },
@@ -53,7 +54,7 @@ export function navGroups(c: NavCtx): NavGroup[] {
   const shift: NavGroup = { key: 'shift', title: 'Run the shift', items: [N.checklists, N.cleaning, N.handoff] };
   const kitchen: NavGroup = { key: 'kitchen', title: 'Kitchen', items: [N.issues, N.waste] };
   const team: NavGroup = { key: 'team', title: 'Team', items: [N.schedule] };
-  const perf: NavGroup = { key: 'perf', title: 'Performance', items: [N.scores, N.coaching, N.report] };
+  const perf: NavGroup = { key: 'perf', title: 'Performance', items: [N.leaderboard, N.scores, N.coaching, N.report] };
   const admin: NavGroup = { key: 'admin', title: 'Admin', items: [N.setup] };
   const order = c.canSchedule ? [perf, team, shift, kitchen, admin] : [shift, kitchen, team, perf, admin];
   return order.map((g) => ({ ...g, items: g.items.filter(visible(c)) })).filter((g) => g.items.length > 0);

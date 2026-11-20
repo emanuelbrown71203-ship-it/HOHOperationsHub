@@ -57,7 +57,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
     for (const r of ROUTES) {
       await page.goto(`${ORIGIN}/#${r}`);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(Number(process.env.HOH_WAIT ?? 1500));
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       if (overflow > 0) problems.push(`${label} ${r}: scrolls sideways by ${overflow}px`);
       const name = `${HOH_THEME ? HOH_THEME + '-' : ''}${label}${r.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '') || '-home'}.png`;
