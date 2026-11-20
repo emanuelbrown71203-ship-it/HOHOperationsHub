@@ -5,6 +5,7 @@ import { isPlaceholderEmail, passkeyErrorMessage, passkeysSupported, thisDevice,
 import { useConfirm } from '../components/Confirm';
 import { ROLE_LABELS } from '../lib/types';
 import NotificationsCard from '../components/NotificationsCard';
+import { setCelebrations, useCelebrations } from '../components/Celebrate';
 import Icon from '../components/Icon';
 
 const THEMES: { key: ThemeChoice; label: string; hint: string }[] = [
@@ -97,6 +98,8 @@ export default function Account() {
 
       <NotificationsCard />
 
+      <CelebrationsCard />
+
       <PasskeysCard />
 
       {!isPlaceholderEmail(session?.user.email) && <PasswordForm />}
@@ -104,6 +107,7 @@ export default function Account() {
       <button className="btn btn-ghost btn-block" onClick={safeSignOut}>
         <Icon name="logout" size={18} /> Sign out
       </button>
+      <p className="muted small center app-version">HOH Operations Hub · version {__APP_VERSION__}</p>
     </div>
   );
 }
@@ -248,6 +252,22 @@ function PasskeysCard() {
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Confetti for the moments that earn it; per device, like the owner's other apps. */
+function CelebrationsCard() {
+  const on = useCelebrations();
+  return (
+    <section className="card">
+      <h2>Celebrations</h2>
+      <p className="muted small">A little confetti when a shift’s list is cleared or all of the day’s cleaning is done. Saved on this device only.</p>
+      <label className={`toggle ${on ? 'toggle-on' : ''}`}>
+        <input type="checkbox" checked={on} onChange={(e) => setCelebrations(e.target.checked)} />
+        <span className="toggle-track" aria-hidden="true"><span /></span>
+        <span>{on ? 'On' : 'Off'}</span>
+      </label>
     </section>
   );
 }

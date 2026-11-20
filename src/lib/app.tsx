@@ -9,7 +9,9 @@ import { useRealtime } from './useRealtime';
 /* Toasts                                                              */
 /* ------------------------------------------------------------------ */
 type ToastKind = 'ok' | 'error';
-interface Toast { id: number; text: string; kind: ToastKind }
+/** `undo` adds an Undo button (house style: Undo for everyday changes, "are you sure?" only for permanent ones). */
+interface ToastOptions { undo?: () => void | Promise<void> }
+interface Toast { id: number; text: string; kind: ToastKind; undo?: () => void | Promise<void> }
 
 /* ------------------------------------------------------------------ */
 /* Per-device state (kept in localStorage)                             */
@@ -85,7 +87,7 @@ interface AppState {
   /** The HOH Lead this device or account acts as: the chosen Shift Lead, or the lead linked to this account. */
   myLeadId: string | null;
 
-  toast: (text: string, kind?: ToastKind) => void;
+  toast: (text: string, kind?: ToastKind, options?: ToastOptions) => void;
   /** Returns false (and shows a message) if nobody can be credited for a new entry yet. */
   ensureActor: () => boolean;
 }
@@ -276,12 +278,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /* ---- toasts ---- */
   const toastId = useRef(0);
-  const toastRef = useRef<(text: string, kind?: ToastKind) => void>(() => {});
-  const toast = useCallback((text: string, kind: ToastKind = 'ok') => {
+  const toastRef = useRef<(text: string, kind?: ToastKind, options?: ToastOptions) => void>(() => {});
+  const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
+  const toast = useCallback((text: string, kind: ToastKind = 'ok', options?: ToastOptions) => {
     const id = ++toastId.current;
-    setToasts((t) => [...t, { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 6000 : 2500);
-  }, []);
+    // Only the newest message with an Undo keeps its button; older ones would undo the wrong thing.
+    setToasts((t) => [...t.filter((x) => !(options?.undo && x.undo)), { id, text, kind, undo: options?.undo }]);
+    setTimeout(() => dismiss(id), options?.undo ? 7000 : kind === 'error' ? 6000 : 4000);
+  }, [dismiss]);
   toastRef.current = toast;
 
   const ensureActor = useCallback(() => {
@@ -326,7 +330,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.kind}`}>{t.text}</div>
+          <div key={t.id} className={`toast toast-${t.kind} ${t.undo ? 'has-action' : ''}`}>
+            <span className="toast-text">{t.text}</span>
+            {t.undo && (
+              <button
+                className="toast-undo"
+                onClick={async () => {
+                  dismiss(t.id);
+                  await t.undo?.();
+                }}
+              >
+                Undo
+              </button>
+            )}
+          </div>
         ))}
       </div>
     </AppContext.Provider>

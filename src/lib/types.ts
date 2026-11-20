@@ -190,6 +190,31 @@ export interface LeadOfMonth {
   avg: number | null;
 }
 
+/** A cleaning job in the Cleaning Hub, repeating every `every_days` days. */
+export interface CleaningTask {
+  id: string;
+  name: string;
+  area: string;
+  every_days: number;
+  /** A shift name, or 'Any'. */
+  shift: string;
+  requires_photo: boolean;
+  instructions: string | null;
+  sort_order: number;
+  active: boolean;
+}
+
+export interface CleaningLog {
+  id: string;
+  task_id: string;
+  done_on: string;
+  done_at: string;
+  shift: string | null;
+  photo_path: string | null;
+  user_id: string | null;
+  performed_by_name: string;
+}
+
 /** A post on Equipment & Supplies: something broken, or something the kitchen needs. */
 export interface KitchenRequest {
   id: string;

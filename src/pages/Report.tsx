@@ -4,7 +4,8 @@ import { useApp } from '../lib/app';
 import { supabase } from '../lib/supabase';
 import { addDays } from '../lib/dates';
 import { categoryAverages, fmtAvg, monthName, monthStart, pct, prevMonth } from '../lib/useScores';
-import type { ChecklistCheck, ChecklistItem, ChecklistTemplate, CoachingNote, HohLead, KitchenRequest, LeadOfMonth, RatingRecord, WasteEntry } from '../lib/types';
+import type { ChecklistCheck, ChecklistItem, ChecklistTemplate, CleaningLog, CleaningTask, CoachingNote, HohLead, KitchenRequest, LeadOfMonth, RatingRecord, WasteEntry } from '../lib/types';
+import { useCleaning } from '../lib/useCleaning';
 import { Meter } from '../components/ScoreCharts';
 import Icon from '../components/Icon';
 
@@ -25,6 +26,8 @@ interface Data {
   templates: ChecklistTemplate[];
   items: ChecklistItem[];
   coaching: CoachingNote[];
+  cleaningLogs: CleaningLog[];
+  cleaningTasks: CleaningTask[];
   winner: LeadOfMonth | null;
 }
 
@@ -36,11 +39,13 @@ export default function Report() {
   const end = addDays(nextMonth(month), -1);
   const through = end < today ? end : today;
   const current = month === monthStart(today);
+  const { items: cleaningNow } = useCleaning(today);
+  const overdueNow = cleaningNow.filter((i) => i.status === 'overdue').map((i) => i.task.name);
 
   const load = useCallback(async () => {
     setD(null);
     const range = <T,>(q: T & { gte: (c: string, v: string) => T & { lte: (c: string, v: string) => PromiseLike<{ data: unknown }> } }, col: string) => q.gte(col, month).lte(col, end);
-    const [records, shifts, leads, waste, requests, open, checks, templates, items, coaching, winner] = await Promise.all([
+    const [records, shifts, leads, waste, requests, open, checks, templates, items, coaching, winner, cleaningLogs, cleaningTasks] = await Promise.all([
       range(supabase.from('lead_rating_history').select('*') as never, 'shift_date'),
       range(supabase.from('shift_handoffs').select('lead_id,submitted_at,shift_date,shift').not('lead_id', 'is', null) as never, 'shift_date'),
       supabase.from('hoh_leads').select('*').order('sort_order'),
@@ -52,6 +57,8 @@ export default function Report() {
       supabase.from('checklist_items').select('*').eq('active', true),
       supabase.from('coaching_notes').select('*').gte('created_at', `${month}T00:00:00`).lte('created_at', `${end}T23:59:59`).order('created_at'),
       supabase.rpc('lead_of_month', { p_month: month }),
+      range(supabase.from('cleaning_logs').select('*') as never, 'done_on'),
+      supabase.from('cleaning_tasks').select('*'),
     ]);
     const rows = <T,>(r: { data: unknown }) => (r.data as T[]) ?? [];
     setD({
@@ -65,6 +72,8 @@ export default function Report() {
       templates: rows(templates),
       items: rows(items),
       coaching: rows(coaching),
+      cleaningLogs: rows(cleaningLogs),
+      cleaningTasks: rows(cleaningTasks),
       winner: (winner.data as LeadOfMonth) ?? null,
     });
   }, [month, end]);
@@ -90,12 +99,12 @@ export default function Report() {
         </div>
       </div>
 
-      {!d ? <div className="spinner" /> : <Body d={d} today={today} shift={shift} month={month} through={through} cats={settings.rating_categories} />}
+      {!d ? <div className="spinner" /> : <Body d={d} today={today} shift={shift} month={month} through={through} cats={settings.rating_categories} overdueNow={overdueNow} />}
     </div>
   );
 }
 
-function Body({ d, today, shift, month, through, cats }: { d: Data; today: string; shift: string; month: string; through: string; cats: string[] }) {
+function Body({ d, today, shift, month, through, cats, overdueNow }: { d: Data; today: string; shift: string; month: string; through: string; cats: string[]; overdueNow: string[] }) {
   const led = d.shifts.filter((s) => !(s.shift_date === today && s.shift === shift));
   const storeAvg = avg(d.records.map((r) => r.score));
   const leadRows = d.leads
@@ -203,6 +212,27 @@ function Body({ d, today, shift, month, through, cats }: { d: Data; today: strin
           {d.openRequests.length > 0 && <p className="muted small">Open: {d.openRequests.slice(0, 6).map((r) => r.title).join(', ')}{d.openRequests.length > 6 ? '…' : ''}</p>}
         </section>
       </div>
+
+      <section className="card">
+        <div className="card-head"><h2><span className="dot" />Cleaning</h2><span className="muted small">{d.cleaningLogs.length} job{d.cleaningLogs.length === 1 ? '' : 's'} checked off</span></div>
+        {d.cleaningLogs.length === 0 && overdueNow.length === 0 ? <p className="muted">No cleaning jobs checked off this month.</p> : (
+          <div className="report-cols">
+            <div>
+              <h3>By area</h3>
+              <ol className="plain-list">
+                {[...d.cleaningLogs.reduce((m, l) => {
+                  const area = d.cleaningTasks.find((t) => t.id === l.task_id)?.area ?? 'Other';
+                  return m.set(area, (m.get(area) ?? 0) + 1);
+                }, new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1]).map(([a, n]) => <li key={a}><span>{a}</span><b>{n}</b></li>)}
+              </ol>
+            </div>
+            <div>
+              <h3>Overdue right now</h3>
+              {overdueNow.length === 0 ? <p className="muted small">Nothing overdue.</p> : <ul className="plain-list">{overdueNow.map((n) => <li key={n}><span>{n}</span></li>)}</ul>}
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="card">
         <div className="card-head"><h2><span className="dot" />Coaching</h2><span className="muted small">{d.coaching.length} note{d.coaching.length === 1 ? '' : 's'} this month</span></div>

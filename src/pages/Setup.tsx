@@ -12,6 +12,7 @@ import {
   type AppSettings,
   type ChecklistItem,
   type ChecklistTemplate,
+  type CleaningTask,
   type HohLead,
   type Profile,
   type Role,
@@ -24,8 +25,10 @@ import { PhotoPicker, PhotoThumb } from '../components/Photo';
 import { usePositions } from '../lib/usePositions';
 import { accountAction } from '../lib/passkeys';
 import { removeFiles, uploadFile } from '../lib/files';
+import { everyLabel } from '../lib/useCleaning';
+import Fold from '../components/Fold';
 
-type Tab = 'store' | 'scores' | 'leads' | 'checklists' | 'positions' | 'equipment' | 'team';
+type Tab = 'store' | 'scores' | 'leads' | 'checklists' | 'cleaning' | 'positions' | 'equipment' | 'team';
 
 export default function Setup() {
   const { isAdmin } = useApp();
@@ -39,6 +42,7 @@ export default function Setup() {
     ['leads', 'HOH Leads', 'Names on the schedule and linked accounts'],
     ['scores', 'Lead scores', 'Who sees scores and what gets rated'],
     ['checklists', 'Checklists', 'HOH Lead checklists and photo tasks'],
+    ['cleaning', 'Cleaning', 'Cleaning jobs for the Cleaning Hub: area, how often, which shift'],
     ['positions', 'Positions', 'Printed checklist for each position'],
     ['equipment', 'Waste Log', 'Items, reasons and units for the Waste Log'],
   ];
@@ -63,6 +67,7 @@ export default function Setup() {
       {tab === 'scores' && <ScoresSettings />}
       {tab === 'leads' && <LeadsEditor />}
       {tab === 'checklists' && <ChecklistsEditor />}
+      {tab === 'cleaning' && <CleaningEditor />}
       {tab === 'positions' && <PositionsEditor />}
       {tab === 'equipment' && (
         <div className="stack">
@@ -606,7 +611,12 @@ function TemplateEditor({ template, onChanged, onCreated }: { template: Checklis
     // Hidden rather than deleted, so past check-offs stay in the record.
     await supabase.from('checklist_items').update({ active: false }).eq('id', it.id);
     await load();
-    toast(`Removed "${it.label}"`);
+    toast(`Removed “${it.label}”`, 'ok', {
+      undo: async () => {
+        await supabase.from('checklist_items').update({ active: true }).eq('id', it.id);
+        await load();
+      },
+    });
   }
 
   async function duplicate() {
@@ -701,6 +711,170 @@ function TemplateEditor({ template, onChanged, onCreated }: { template: Checklis
         </button>
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Cleaning Hub jobs                                                   */
+/* ------------------------------------------------------------------ */
+const EVERY: [number, string][] = [[1, 'Every day'], [2, 'Every other day'], [7, 'Every week'], [14, 'Every 2 weeks'], [30, 'Every month'], [90, 'Every 3 months']];
+
+function EverySelect({ value, onChange, label }: { value: number; onChange: (n: number) => void; label: string }) {
+  const options = EVERY.some(([d]) => d === value) ? EVERY : [...EVERY, [value, everyLabel(value)] as [number, string]];
+  return (
+    <select value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label}>
+      {options.map(([d, l]) => <option key={d} value={d}>{l}</option>)}
+    </select>
+  );
+}
+
+function CleaningEditor() {
+  const { shiftNames, toast } = useApp();
+  const { rows, run, load } = useTable<CleaningTask>('cleaning_tasks');
+  const active = rows.filter((r) => r.active);
+  const hidden = rows.filter((r) => !r.active);
+  const areas = [...new Set(rows.map((r) => r.area))];
+  const [text, setText] = useState('');
+  const [area, setArea] = useState('Kitchen');
+  const [every, setEvery] = useState(1);
+  const [shift, setShift] = useState('Any');
+  const [photo, setPhoto] = useState(false);
+  const [editing, setEditing] = useState<CleaningTask | null>(null);
+  const shiftOptions = [...shiftNames, 'Any'];
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    const names = text.split('\n').map((l) => l.replace(/^[\s\-•*\d.)\]\[]+/, '').trim()).filter(Boolean);
+    if (!names.length) return;
+    const start = nextOrder(rows);
+    const ok = await run(
+      supabase.from('cleaning_tasks').insert(names.map((name, i) => ({ name, area: area.trim() || 'Kitchen', every_days: every, shift, requires_photo: photo, sort_order: start + i }))),
+      `Added ${names.length} cleaning job${names.length === 1 ? '' : 's'}`,
+    );
+    if (ok) setText('');
+  }
+
+  async function hide(t: CleaningTask) {
+    await supabase.from('cleaning_tasks').update({ active: false }).eq('id', t.id);
+    await load();
+    toast(`Removed “${t.name}”`, 'ok', {
+      undo: async () => {
+        await supabase.from('cleaning_tasks').update({ active: true }).eq('id', t.id);
+        await load();
+      },
+    });
+  }
+
+  return (
+    <div className="stack">
+      <section className="card builder">
+        <SectionIntro title="Add cleaning jobs">
+          Type one job per line (or paste a list). Pick the area, how often it needs doing, and which shift does it. The Cleaning Hub works out what's due each day.
+        </SectionIntro>
+        <form className="task-add" onSubmit={add}>
+          <textarea
+            rows={Math.min(8, Math.max(2, text.split('\n').length))}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={'e.g. Degrease the hood filters\nScrub the floor drains'}
+            aria-label="New cleaning jobs, one per line"
+          />
+          <div className="field-row">
+            <label className="field">
+              <span>Area</span>
+              <input list="clean-areas" value={area} onChange={(e) => setArea(e.target.value)} placeholder="e.g. Fryers" />
+            </label>
+            <label className="field">
+              <span>How often</span>
+              <EverySelect value={every} onChange={setEvery} label="How often" />
+            </label>
+          </div>
+          <Segmented label="Which shift does it" value={shift} options={shiftOptions.map((s) => [s, s === 'Any' ? 'Any shift' : s] as [string, string])} onChange={setShift} />
+          <div className="row-between wrap">
+            <label className={`toggle ${photo ? 'toggle-on' : ''}`}>
+              <input type="checkbox" checked={photo} onChange={(e) => setPhoto(e.target.checked)} />
+              <span className="toggle-track" aria-hidden="true"><span /></span>
+              <span>Ask for a photo</span>
+            </label>
+            <button className="btn btn-primary" disabled={!text.trim()}><Icon name="plus" size={18} /> Add {text.includes('\n') ? 'jobs' : 'job'}</button>
+          </div>
+        </form>
+        <datalist id="clean-areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
+      </section>
+
+      {areas.filter((a) => active.some((t) => t.area === a)).map((a) => (
+        <section key={a} className="card">
+          <h3 className="clean-area-title">{a} <span className="muted small">({active.filter((t) => t.area === a).length})</span></h3>
+          <ul className="edit-list clean-edit-list">
+            {active.filter((t) => t.area === a).map((t) => (
+              <li key={t.id}>
+                <InlineText label="Job" value={t.name} onSave={(name) => run(supabase.from('cleaning_tasks').update({ name }).eq('id', t.id))} />
+                <EverySelect value={t.every_days} label={`How often: ${t.name}`} onChange={(every_days) => run(supabase.from('cleaning_tasks').update({ every_days }).eq('id', t.id), `${t.name}: ${everyLabel(every_days).toLowerCase()}`)} />
+                <select value={t.shift} aria-label={`Shift for ${t.name}`} onChange={(e) => run(supabase.from('cleaning_tasks').update({ shift: e.target.value }).eq('id', t.id))}>
+                  {[...new Set([...shiftOptions, t.shift])].map((s) => <option key={s} value={s}>{s === 'Any' ? 'Any shift' : `${s} shift`}</option>)}
+                </select>
+                <button
+                  type="button"
+                  className={`photo-chip ${t.requires_photo ? 'on' : ''}`}
+                  aria-pressed={t.requires_photo}
+                  onClick={() => run(supabase.from('cleaning_tasks').update({ requires_photo: !t.requires_photo }).eq('id', t.id))}
+                >
+                  <Icon name="camera" size={16} /> {t.requires_photo ? 'Photo required' : 'Ask for a photo'}
+                </button>
+                <button className="icon-btn" aria-label={`More for ${t.name}`} onClick={() => setEditing(t)}><Icon name="edit" size={18} /></button>
+                <button className="icon-btn" aria-label={`Remove ${t.name}`} onClick={() => hide(t)}><Icon name="x" size={18} /></button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      {hidden.length > 0 && (
+        <Fold title={`Removed jobs (${hidden.length})`} summary="Bring one back">
+          <ul className="edit-list">
+            {hidden.map((t) => (
+              <li key={t.id} className="inactive">
+                <span className="grow">{t.name} <span className="muted small">· {t.area}</span></span>
+                <button className="btn btn-ghost btn-sm" onClick={() => run(supabase.from('cleaning_tasks').update({ active: true }).eq('id', t.id), `Brought back ${t.name}`)}>Bring back</button>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      )}
+
+      {editing && <CleaningJobSheet task={editing} areas={areas} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    </div>
+  );
+}
+
+function CleaningJobSheet({ task, areas, onClose, onSaved }: { task: CleaningTask; areas: string[]; onClose: () => void; onSaved: () => void }) {
+  const { toast } = useApp();
+  const [area, setArea] = useState(task.area);
+  const [instructions, setInstructions] = useState(task.instructions ?? '');
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    setSaving(true);
+    const { error } = await supabase.from('cleaning_tasks').update({ area: area.trim() || task.area, instructions: instructions.trim() || null }).eq('id', task.id);
+    setSaving(false);
+    if (error) return toast(errorMessage(error), 'error');
+    toast('Saved');
+    onSaved();
+  }
+  return (
+    <Modal title={task.name} onClose={onClose}>
+      <div className="stack">
+        <label className="field">
+          <span>Area</span>
+          <input list="clean-areas-sheet" value={area} onChange={(e) => setArea(e.target.value)} />
+          <datalist id="clean-areas-sheet">{areas.map((a) => <option key={a} value={a} />)}</datalist>
+        </label>
+        <label className="field">
+          <span>How to do it (optional)</span>
+          <textarea rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="e.g. Soak filters in degreaser for 20 minutes, rinse, let dry before putting back." />
+        </label>
+        <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+    </Modal>
   );
 }
 

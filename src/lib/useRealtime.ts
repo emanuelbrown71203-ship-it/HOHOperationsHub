@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from './supabase';
+import { REFRESH_EVENT } from './refresh';
 
 let channelCounter = 0;
 
@@ -24,9 +25,12 @@ export function useRealtime(tables: string[], onChange: () => void) {
       if (document.visibilityState === 'visible') cb.current();
     };
     document.addEventListener('visibilitychange', onVisible);
+    const onPull = () => cb.current();
+    window.addEventListener(REFRESH_EVENT, onPull);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener(REFRESH_EVENT, onPull);
       supabase.removeChannel(channel);
     };
   }, [key]);

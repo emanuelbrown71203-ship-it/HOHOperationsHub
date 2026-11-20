@@ -9,9 +9,21 @@ import { navGroups, tabItems } from '../lib/nav';
 import { isDemo } from '../lib/supabase';
 import { resetDemo } from '../lib/demo';
 import PasskeyNudge from './PasskeyNudge';
+import PullToRefresh from './PullToRefresh';
+import Celebrations from './Celebrate';
+import Modal from './Modal';
+import { MoreList } from '../pages/More';
+import { useKitchenRequests } from '../pages/Notes';
+import { leftToday, useCleaning } from '../lib/useCleaning';
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, canSchedule, profile, settings, canViewScores } = useApp();
+  const { isKitchen, actorName, shift, setShift, shiftNames, isAdmin, canSchedule, profile, settings, canViewScores, today } = useApp();
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Count badges: something is waiting there.
+  const { open: requests } = useKitchenRequests();
+  const { items: cleaning } = useCleaning(today);
+  const cleaningLeft = leftToday(cleaning, shift).length;
+  const badges: Record<string, number> = { '/cleaning': cleaningLeft, '/notes': requests.length, '/kitchen': requests.length };
   const [pickerOpen, setPickerOpen] = useState(false);
   const needsLead = isKitchen && !actorName;
 
@@ -23,6 +35,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const KITCHEN = ['/kitchen', '/waste', '/notes'];
   const tabFor = (to: string) => (to === '/' ? pathname === '/' : to === '/kitchen' ? KITCHEN.includes(pathname) : pathname === to || pathname.startsWith(`${to}/`));
   const moreActive = !tabs.some((t) => tabFor(t.to));
+  const inTabs = new Set(tabs.map((t) => t.to));
+  const moreBadge = Object.entries(badges).filter(([to]) => to !== '/kitchen' && !inTabs.has(to) && !(to === '/notes' && inTabs.has('/kitchen'))).reduce((n, [, v]) => n + v, 0);
 
   return (
     <div className="shell">
@@ -78,6 +92,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <NavLink key={n.to} to={n.to} className={`navlink sec-${n.section}`}>
                 <Icon name={n.icon} />
                 <span>{n.label}</span>
+                {!!badges[n.to] && <span className="count-badge">{badges[n.to]}</span>}
               </NavLink>
             ))}
           </div>
@@ -110,15 +125,24 @@ export default function Layout({ children }: { children: ReactNode }) {
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className={() => `tab sec-${n.section} ${tabFor(n.to) ? 'active' : ''}`}>
             <Icon name={n.icon} />
             <span>{n.short ?? n.label}</span>
+            {!!badges[n.to] && <span className="tab-badge">{badges[n.to]}</span>}
           </NavLink>
         ))}
-        <NavLink to="/more" className={() => `tab sec-setup ${moreActive ? 'active' : ''}`}>
+        <button type="button" className={`tab sec-setup ${moreActive ? 'active' : ''}`} onClick={() => setMoreOpen(true)} aria-haspopup="dialog">
           <Icon name="grid" />
           <span>More</span>
-        </NavLink>
+          {moreBadge > 0 && <span className="tab-badge">{moreBadge}</span>}
+        </button>
       </nav>
 
       {pickerOpen && <LeadPicker onClose={() => setPickerOpen(false)} />}
+      {moreOpen && (
+        <Modal title="More" onClose={() => setMoreOpen(false)}>
+          <MoreList badges={badges} onNavigate={() => setMoreOpen(false)} />
+        </Modal>
+      )}
+      <PullToRefresh />
+      <Celebrations />
     </div>
   );
 }

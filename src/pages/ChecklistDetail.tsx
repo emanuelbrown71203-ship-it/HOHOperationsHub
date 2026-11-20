@@ -49,12 +49,21 @@ export default function ChecklistDetail() {
         toast(`Only ${check.performed_by_name}'s account or a lead can uncheck this.`, 'error');
         return;
       }
-      if (!(await confirm({ title: 'Uncheck this task?', body: `"${item.label}" was checked off by ${check.performed_by_name}.${check.photo_path ? ' Its photo is removed too.' : ''}`, confirmLabel: 'Uncheck' }))) return;
+      // Someone else's check-off: ask first (Undo would put your name on it). Your own: Undo instead.
+      if (!mine && !(await confirm({ title: 'Uncheck this task?', body: `"${item.label}" was checked off by ${check.performed_by_name}.${check.photo_path ? ' Its photo is removed too.' : ''}`, confirmLabel: 'Uncheck' }))) return;
       setBusyItem(item.id);
       const { error } = await supabase.from('checklist_checks').delete().eq('id', check.id);
       setBusyItem(null);
       if (error) toast(errorMessage(error), 'error');
-      else if (check.photo_path) removeFiles([check.photo_path]);
+      else if (mine) {
+        toast(`Unchecked “${item.label}”`, 'ok', {
+          undo: async () => {
+            const { error: e } = await supabase.from('checklist_checks').insert({ template_id: item.template_id, item_id: item.id, check_date: check.check_date, lead_id: actorLeadId, photo_path: check.photo_path });
+            if (e) toast(errorMessage(e), 'error');
+            reload();
+          },
+        });
+      } else if (check.photo_path) removeFiles([check.photo_path]);
     } else {
       if (!ensureActor()) return;
       setBusyItem(item.id);

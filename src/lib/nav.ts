@@ -34,6 +34,7 @@ export const NAV_ITEMS = {
   home: { to: '/', label: 'Home', hint: 'Today at a glance', icon: 'home', section: 'home' },
   checklists: { to: '/checklists', label: 'Checklists', hint: 'HOH Lead checklists and each position’s printed checklist', icon: 'check', section: 'checklists' },
   handoff: { to: '/handoff', label: 'Shift Handoff', short: 'Handoff', hint: 'Rate the last shift’s setup, then leave photos and notes for the next one', icon: 'swap', section: 'handoff' },
+  cleaning: { to: '/cleaning', label: 'Cleaning Hub', short: 'Cleaning', hint: 'Cleaning jobs for the whole HOH: what’s due today, overdue and coming up', icon: 'broom', section: 'cleaning' },
   kitchen: { to: '/kitchen', label: 'Kitchen', hint: 'Broken equipment, supplies you need, and waste', icon: 'wrench', section: 'notes' },
   issues: { to: '/notes', label: 'Equipment & Supplies', short: 'Supplies', hint: 'Pass along something broken or something the kitchen needs', icon: 'wrench', section: 'notes' },
   waste: { to: '/waste', label: 'Waste Log', short: 'Waste', hint: 'Record food that was thrown away, and why', icon: 'trash', section: 'waste' },
@@ -49,7 +50,7 @@ const visible = (c: NavCtx) => (i: NavItem) => !i.show || i.show(c);
 
 /** Menu groups, ordered for how this person uses the app. Home sits above them. */
 export function navGroups(c: NavCtx): NavGroup[] {
-  const shift: NavGroup = { key: 'shift', title: 'Run the shift', items: [N.checklists, N.handoff] };
+  const shift: NavGroup = { key: 'shift', title: 'Run the shift', items: [N.checklists, N.cleaning, N.handoff] };
   const kitchen: NavGroup = { key: 'kitchen', title: 'Kitchen', items: [N.issues, N.waste] };
   const team: NavGroup = { key: 'team', title: 'Team', items: [N.schedule] };
   const perf: NavGroup = { key: 'perf', title: 'Performance', items: [N.scores, N.coaching, N.report] };
@@ -60,5 +61,5 @@ export function navGroups(c: NavCtx): NavGroup[] {
 
 /** The phone tab bar (More is added after these). */
 export function tabItems(c: NavCtx): NavItem[] {
-  return c.canSchedule ? [N.home, N.scores, N.schedule, N.kitchen] : [N.home, N.checklists, N.handoff, N.kitchen];
+  return c.canSchedule ? [N.home, N.scores, N.schedule, N.kitchen] : [N.home, N.checklists, N.cleaning, N.handoff];
 }

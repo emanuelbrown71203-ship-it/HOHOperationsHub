@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { supabase } from '../lib/supabase';
@@ -15,6 +15,8 @@ import Stars from '../components/Stars';
 import { FocusCard, ShoutoutCard } from '../components/HomeCards';
 import { ScoreboardBody } from '../components/ScoreboardCard';
 import LeadOfMonthBanner from '../components/LeadOfMonth';
+import { celebrate } from '../components/Celebrate';
+import { useCleaning } from '../lib/useCleaning';
 import { RequestCard, useKitchenRequests } from './Notes';
 import { NoteCard as CoachNoteCard, followUpDue, useCoachingNotes } from './Coaching';
 import type { KitchenRequest } from '../lib/types';
@@ -82,10 +84,12 @@ interface Req {
 
 function ShiftView() {
   const { today, shift, shiftNames, settings, actorName, isKitchen, leads, myLeadId, canViewScores } = useApp();
-  const { progress } = useChecklists(today);
+  const { progress, loading: loadingLists } = useChecklists(today);
   const { open: requests } = useKitchenRequests();
-  const { byKey, photosFor } = useHandoffs(today);
+  const { byKey, photosFor, loading: loadingHandoffs } = useHandoffs(today);
   const { entries, entryFor } = useSchedule(addDays(today, -1), addDays(today, 13));
+  const { items: cleaning, loading: loadingCleaning } = useCleaning(today);
+  const ready = !loadingLists && !loadingHandoffs && !loadingCleaning;
 
   const tone = shiftTone(shiftNames, shift);
   const current = shiftNames.indexOf(shift);
@@ -122,6 +126,19 @@ function ShiftView() {
         to: `/checklists/${p.template.id}`,
       });
     }
+    const jobs = cleaning.filter((i) => i.task.shift === s && i.status !== 'later');
+    if (jobs.length) {
+      const jobsDone = jobs.filter((i) => i.status === 'done').length;
+      const late = jobs.filter((i) => i.status === 'overdue').length;
+      reqs.push({
+        key: 'cleaning',
+        done: jobsDone === jobs.length,
+        icon: 'broom',
+        title: 'Cleaning',
+        sub: jobsDone === jobs.length ? 'All cleaning jobs done' : `${jobsDone} of ${jobs.length} jobs done${late ? ` · ${late} overdue` : ''}`,
+        to: `/cleaning?shift=${encodeURIComponent(s)}`,
+      });
+    }
     reqs.push({
       key: 'handoff',
       done: !!h?.submitted_at,
@@ -136,6 +153,19 @@ function ShiftView() {
   });
 
   const anyShift = progress.filter((p) => !shiftNames.includes(p.template.shift) && p.total > 0);
+  const anyJobs = cleaning.filter((i) => !shiftNames.includes(i.task.shift) && i.status !== 'later');
+  const anyJobsDone = anyJobs.filter((i) => i.status === 'done').length;
+
+  // Celebrate when the current shift's whole list gets cleared while the app is open.
+  const now = cards.find((c) => c.status === 'now');
+  const prevLeft = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ready || !now) return;
+    if (prevLeft.current !== null && prevLeft.current > 0 && now.left === 0) {
+      celebrate(`${now.s} shift: everything’s done`, 'Every requirement for this shift is checked off. Great work.');
+    }
+    prevLeft.current = now.left;
+  }, [ready, now?.left, now?.s]);
   const myNext = !isKitchen && myLeadId
     ? entries.filter((e) => e.lead_id === myLeadId && (e.shift_date > today || (e.shift_date === today && shiftNames.indexOf(e.shift) >= current)))[0]
     : undefined;
@@ -191,9 +221,14 @@ function ShiftView() {
         ))}
       </section>
 
-      {anyShift.length > 0 && (
+      {(anyShift.length > 0 || anyJobs.length > 0) && (
         <div className="any-shift">
           <span className="eyebrow">Any shift</span>
+          {anyJobs.length > 0 && (
+            <Link to="/cleaning?shift=all" className={`any-chip ${anyJobsDone === anyJobs.length ? 'done' : ''}`}>
+              <Icon name={anyJobsDone === anyJobs.length ? 'done' : 'broom'} size={14} /> Cleaning <b>{anyJobsDone}/{anyJobs.length}</b>
+            </Link>
+          )}
           {anyShift.map((p) => (
             <Link key={p.template.id} to={`/checklists/${p.template.id}`} className={`any-chip ${p.done === p.total ? 'done' : ''}`}>
               <Icon name={p.done === p.total ? 'done' : 'check'} size={14} /> {p.template.name} <b>{p.done}/{p.total}</b>
@@ -320,6 +355,7 @@ function Overview({ onShiftView }: { onShiftView: () => void }) {
   const { entries, entryFor } = useSchedule(addDays(today, -7), addDays(today, 6));
   const { open: requests } = useKitchenRequests();
   const { notes: coaching } = useCoachingNotes();
+  const { items: cleaning } = useCleaning(today);
   const { byKey, ratingFor } = useHandoffs(today);
   const { progress } = useChecklists(today);
   const pending = usePendingCount(isAdmin);
@@ -355,6 +391,10 @@ function Overview({ onShiftView }: { onShiftView: () => void }) {
   }
   if (needed.length) {
     items.push({ key: 'needed', level: 'warn', icon: 'box', title: `${needed.length} supply request${needed.length === 1 ? '' : 's'}`, sub: needed.slice(0, 3).map((r) => r.title).join(' · '), to: '/notes' });
+  }
+  const overdueJobs = cleaning.filter((i) => i.status === 'overdue');
+  if (overdueJobs.length) {
+    items.push({ key: 'cleaning', level: 'warn', icon: 'broom', title: `${overdueJobs.length} cleaning job${overdueJobs.length === 1 ? '' : 's'} overdue`, sub: overdueJobs.slice(0, 3).map((i) => i.task.name).join(' · '), to: '/cleaning?shift=all' });
   }
   const followUps = coaching.filter((n) => followUpDue(n, today));
   if (followUps.length) {

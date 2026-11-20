@@ -4,6 +4,17 @@ A web app for Heart of House (HOH, the kitchen) operations at one Chick-fil-A st
 tablet and on phones. Live at **https://hoh-operations-hub.vercel.app**. README.md describes the features;
 this file is how to work on it.
 
+## Read this first: the house style
+
+**`docs/house-style.md` is the owner's standing list of how all their apps look, feel and behave** (copied
+from their Passbook app; it covers Tasks for Two, Roux, the YouTube Dashboard, this app and Passbook). Follow
+it for every screen. Already in this app: bottom tab bar + More sheet, side menu on wide screens, sheets with
+a drag handle (`Modal`), pull to refresh (`PullToRefresh`, screens reload through `useRealtime`), Undo
+messages (`toast(text, 'ok', { undo })`), folds (`Fold`), celebrations (`celebrate()`, switchable in
+Account), count badges, press-in on tap, version number in Account (bump `package.json` version: small fix
+x.y.z+1, new feature x.y+1). Where the house style and this app differ, this app's existing look wins (for
+example the theme defaults to light because the owner prefers bright).
+
 ## Who you're working with
 
 - The owner runs HOH at the store. They are **not a developer**: explain in plain language, describe what
@@ -26,10 +37,12 @@ this file is how to work on it.
 | New sign-up | `pending` | Waiting screen until an admin approves |
 
 The first account ever created becomes Director + Admin. **Home opens "shift ready" for everyone**: the AM and
-PM requirements side by side (rate the last shift, that shift's checklists, handoff photos). Directors and
+PM requirements side by side (rate the last shift, that shift's checklists, that shift's cleaning, handoff photos). Directors and
 admins can switch to the **Overview** (scores, needs attention); the choice is remembered per device.
 The owner does **not** want to track equipment: no equipment list, no fryer logs. "Equipment & Supplies" is
-only a message board (something broken / something needed, like oven mitts). Menu, phone tabs and More page all come
+only a message board (something broken / something needed, like oven mitts). The **Cleaning Hub** is
+cleaning jobs for the whole HOH: each repeats every N days, belongs to an area and a shift (or any shift),
+can require a photo; due/overdue is worked out in `src/lib/useCleaning.ts`; admins edit jobs in Setup → Cleaning. Menu, phone tabs and More page all come
 from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Code map
@@ -44,7 +57,7 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Database (Supabase project `khtuqripoqqlzqdkrwym`)
 
-- Schema in `supabase/migrations/` (0001-0013). Apply new ones with the Supabase `apply_migration` tool and
+- Schema in `supabase/migrations/` (0001-0014). Apply new ones with the Supabase `apply_migration` tool and
   also commit the file. **0008 has not been applied**; the owner was asked to run it in the SQL editor.
 - Row-level security on every table. Names on entries are filled in by the database (attribution triggers,
   `actor_name()`), never sent by the app. Write rules for who can do what in SQL policies/functions, then
@@ -64,10 +77,12 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Checking your work
 
-1. `npm run build` (type-checks too). `npm run build:demo` if you touched `demo.ts`.
+1. `npm run build` (type-checks too). `npm run build:demo` if you touched `demo.ts`. Bump the version in
+   `package.json` (shown in Account).
 2. Talk to the real database from Node with `NODE_USE_ENV_PROXY=1` (the sandbox needs its proxy).
 3. Screens on real data, phone and tablet, no deploy needed:
-   `HOH_EMAIL=… HOH_PASSWORD=… node scripts/check-screens.cjs <out-folder> [/route …]`.
+   `HOH_EMAIL=… HOH_PASSWORD=… [HOH_THEME=dark] node scripts/check-screens.cjs <out-folder> [/route …]`
+   (the house style asks for light and dark).
    It serves `dist/` under the live address, so passkeys behave as in production. For passkey flows, add
    Chrome's virtual authenticator (CDP `WebAuthn.addVirtualAuthenticator`) to the same setup.
 4. Test accounts (example.com emails, names start with "Test" / "Zz Test"): Test Director, Test Member,

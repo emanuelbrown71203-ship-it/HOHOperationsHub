@@ -3,7 +3,7 @@
 // links behave exactly as in production; nothing is deployed.
 //
 //   npm run build
-//   HOH_EMAIL=... HOH_PASSWORD=... node scripts/check-screens.cjs <output-folder> [/route ...]
+//   HOH_EMAIL=... HOH_PASSWORD=... [HOH_THEME=dark] node scripts/check-screens.cjs <output-folder> [/route ...]
 //
 // Signs in with an email + password account (test accounts only; never commit passwords).
 // Prints the menu, any page errors and any sideways scrolling (overflow) per screen.
@@ -16,7 +16,7 @@ const ORIGIN = 'https://hoh-operations-hub.vercel.app';
 const OUT = process.argv[2];
 const ROUTES = process.argv.slice(3).length ? process.argv.slice(3) : ['/', '/checklists', '/handoff', '/schedule', '/kitchen', '/scores', '/more'];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
-const { HOH_EMAIL, HOH_PASSWORD } = process.env;
+const { HOH_EMAIL, HOH_PASSWORD, HOH_THEME } = process.env;
 
 if (!OUT || !HOH_EMAIL || !HOH_PASSWORD) {
   console.error('Usage: HOH_EMAIL=... HOH_PASSWORD=... node scripts/check-screens.cjs <output-folder> [/route ...]');
@@ -40,6 +40,7 @@ fs.mkdirSync(OUT, { recursive: true });
       if (!fs.existsSync(file)) file = path.join(DIST, 'index.html');
       route.fulfill({ status: 200, body: fs.readFileSync(file), headers: { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' } });
     });
+    if (HOH_THEME) await ctx.addInitScript((t) => localStorage.setItem('hoh.theme', JSON.stringify(t)), HOH_THEME);
     const page = await ctx.newPage();
     page.on('pageerror', (e) => problems.push(`${label}: ${e.message}`));
 
@@ -59,7 +60,7 @@ fs.mkdirSync(OUT, { recursive: true });
       await page.waitForTimeout(1500);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       if (overflow > 0) problems.push(`${label} ${r}: scrolls sideways by ${overflow}px`);
-      const name = `${label}${r.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '') || '-home'}.png`;
+      const name = `${HOH_THEME ? HOH_THEME + '-' : ''}${label}${r.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '') || '-home'}.png`;
       await page.screenshot({ path: path.join(OUT, name), fullPage: true });
     }
     await ctx.close();
