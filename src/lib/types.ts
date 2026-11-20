@@ -190,6 +190,37 @@ export interface LeadOfMonth {
   avg: number | null;
 }
 
+/** A post on Equipment & Supplies: something broken, or something the kitchen needs. */
+export interface KitchenRequest {
+  id: string;
+  kind: 'broken' | 'need';
+  title: string;
+  details: string | null;
+  photo_path: string | null;
+  status: 'open' | 'done';
+  shift: string | null;
+  created_at: string;
+  user_id: string | null;
+  performed_by_name: string;
+  resolved_at: string | null;
+  resolved_by_name: string | null;
+  resolution_note: string | null;
+}
+
+/** A director's or admin's note about an HOH Lead (or anyone on the team). */
+export interface CoachingNote {
+  id: string;
+  lead_id: string | null;
+  subject_name: string;
+  kind: 'coaching' | 'praise';
+  note: string;
+  follow_up_on: string | null;
+  follow_up_done_at: string | null;
+  shared_with_lead: boolean;
+  created_by_name: string;
+  created_at: string;
+}
+
 /** Someone on the team list for "Who's Trained" (no account needed). */
 export interface TeamMember {
   id: string;
@@ -259,7 +290,13 @@ export interface AppSettings {
   fryer_oil_days: number;
   notifications_enabled: boolean;
   timezone: string;
+  /** Which notifications are on (each can be switched off in Setup → Store). */
+  notify_kinds: Record<NotifyKind, boolean>;
+  /** When close-out should be done (the last shift "ends" here, for handoff reminders). */
+  close_time: string;
 }
+
+export type NotifyKind = 'schedule' | 'reminder' | 'handoff_missed' | 'requests' | 'ratings';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   store_name: 'Our Store',
@@ -275,6 +312,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fryer_oil_days: 7,
   notifications_enabled: false,
   timezone: 'America/New_York',
+  notify_kinds: { schedule: true, reminder: true, handoff_missed: true, requests: true, ratings: true },
+  close_time: '23:00',
 };
 
 const LEGACY_LOG_LABELS: Record<string, string> = {

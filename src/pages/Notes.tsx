@@ -1,128 +1,110 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../lib/app';
 import { supabase, errorMessage } from '../lib/supabase';
 import { useRealtime } from '../lib/useRealtime';
-import { addDays, formatDateTime, timeAgo } from '../lib/dates';
+import { formatDateTime, timeAgo } from '../lib/dates';
 import { removeFiles, uploadFile } from '../lib/files';
-import type { Equipment, EquipmentLog } from '../lib/types';
+import type { KitchenRequest } from '../lib/types';
 import Modal from '../components/Modal';
-import Icon, { categoryIcon } from '../components/Icon';
+import Icon from '../components/Icon';
 import { PhotoPicker, PhotoThumb } from '../components/Photo';
 import { useConfirm } from '../components/Confirm';
 
-/** Equipment + kitchen notes ("issue" logs), kept live. */
-export function useKitchenNotes(today: string) {
-  const [equipment, setEquipment] = useState<Equipment[]>([]);
-  const [open, setOpen] = useState<EquipmentLog[]>([]);
-  const [recent, setRecent] = useState<EquipmentLog[]>([]);
+export type RequestKind = KitchenRequest['kind'];
+export const KIND: Record<RequestKind, { label: string; post: string; done: string; icon: 'wrench' | 'box' }> = {
+  broken: { label: 'Broken', post: 'Something’s broken', done: 'Fixed', icon: 'wrench' },
+  need: { label: 'Needed', post: 'We need something', done: 'Got it', icon: 'box' },
+};
+
+/** Equipment & Supplies posts, kept live: everything open, plus what was taken care of in the last two weeks. */
+export function useKitchenRequests() {
+  const [open, setOpen] = useState<KitchenRequest[]>([]);
+  const [done, setDone] = useState<KitchenRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    const [eq, op, rc] = await Promise.all([
-      supabase.from('equipment').select('*').eq('active', true).order('sort_order').order('name'),
-      supabase.from('equipment_logs').select('*').eq('log_type', 'issue').eq('status', 'open').order('logged_at', { ascending: false }),
-      supabase.from('equipment_logs').select('*').eq('log_type', 'issue').gte('log_date', addDays(today, -60)).order('logged_at', { ascending: false }).limit(500),
+    const since = new Date(Date.now() - 14 * 864e5).toISOString();
+    const [o, d] = await Promise.all([
+      supabase.from('kitchen_requests').select('*').eq('status', 'open').order('created_at', { ascending: false }),
+      supabase.from('kitchen_requests').select('*').eq('status', 'done').gte('resolved_at', since).order('resolved_at', { ascending: false }).limit(30),
     ]);
-    setEquipment((eq.data as Equipment[]) ?? []);
-    setOpen((op.data as EquipmentLog[]) ?? []);
-    setRecent((rc.data as EquipmentLog[]) ?? []);
+    setOpen((o.data as KitchenRequest[]) ?? []);
+    setDone((d.data as KitchenRequest[]) ?? []);
     setLoading(false);
-  }, [today]);
+  }, []);
   useEffect(() => {
     load();
   }, [load]);
-  useRealtime(['equipment_logs', 'equipment'], load);
-  const nameOf = useCallback((id: string) => equipment.find((e) => e.id === id)?.name ?? 'Removed equipment', [equipment]);
-  return { equipment, open, recent, loading, reload: load, nameOf };
+  useRealtime(['kitchen_requests'], load);
+  return { open, done, loading, reload: load };
 }
 
-export default function Notes() {
-  const { today } = useApp();
+export default function Supplies() {
   const [params, setParams] = useSearchParams();
-  const { equipment, open, recent, loading, reload, nameOf } = useKitchenNotes(today);
-  const [resolving, setResolving] = useState<EquipmentLog | null>(null);
-  const viewing = equipment.find((e) => e.id === params.get('eq')) ?? null;
-  const composing = params.get('new') === '1';
-  const fixed = recent.filter((n) => n.status === 'resolved').slice(0, 20);
-
-  const setParam = (k: string, v: string | null) => {
+  const { open, done, loading, reload } = useKitchenRequests();
+  const [resolving, setResolving] = useState<KitchenRequest | null>(null);
+  const newKind = params.get('new');
+  const composing: RequestKind | null = newKind === 'need' ? 'need' : newKind ? 'broken' : null;
+  const setNew = (k: RequestKind | null) => {
     const next = new URLSearchParams(params);
-    if (v) next.set(k, v);
-    else next.delete(k);
+    if (k) next.set('new', k);
+    else next.delete('new');
     setParams(next, { replace: true });
   };
-
-  const categories = useMemo(() => {
-    const groups = new Map<string, Equipment[]>();
-    for (const e of equipment) groups.set(e.category, [...(groups.get(e.category) ?? []), e]);
-    return [...groups.entries()];
-  }, [equipment]);
+  const broken = open.filter((r) => r.kind === 'broken');
+  const needed = open.filter((r) => r.kind === 'need');
 
   return (
     <div className="page sec-notes">
-      <div className="page-head">
-        <div className="page-title">
-          <span className="page-icon"><Icon name="wrench" size={22} /></span>
-          <h1>Equipment Issues</h1>
-        </div>
-        <button className="btn btn-primary" onClick={() => setParam('new', '1')}>
-          <Icon name="plus" size={18} /> Report an issue
+      <div className="page-title">
+        <span className="page-icon"><Icon name="wrench" size={22} /></span>
+        <h1>Equipment &amp; Supplies</h1>
+      </div>
+      <p className="muted lede">Pass the message along: something broken, or something the kitchen needs, like oven mitts or a scraper. It stays here until someone takes care of it.</p>
+
+      <div className="post-buttons">
+        <button className="post-btn kind-broken" onClick={() => setNew('broken')}>
+          <span className="quick-icon"><Icon name="wrench" size={22} /></span>
+          <span><strong>Something’s broken</strong><small>Equipment not working right</small></span>
+        </button>
+        <button className="post-btn kind-need" onClick={() => setNew('need')}>
+          <span className="quick-icon"><Icon name="box" size={22} /></span>
+          <span><strong>We need something</strong><small>Oven mitts, scrapers, supplies</small></span>
         </button>
       </div>
-      <p className="muted lede">Something broken, leaking or not working right? Report it here. It stays on the list until someone marks it fixed, so nothing gets forgotten.</p>
 
       {loading ? (
         <div className="spinner" />
       ) : (
         <>
-          <section className="stack">
-            <h2 className="section-title"><span className="dot dot-danger" /> Needs attention ({open.length})</h2>
-            {open.length === 0 ? (
-              <div className="all-clear big"><Icon name="done" size={20} /> Nothing broken right now.</div>
-            ) : (
-              <div className="note-board">
-                {open.map((n) => (
-                  <NoteCard key={n.id} note={n} equipmentName={nameOf(n.equipment_id)} onResolve={() => setResolving(n)} onChanged={reload} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="stack">
-            <h2 className="section-title">Equipment</h2>
-            <p className="muted small">Tap a piece of equipment to see its issues or report a new one.</p>
-            {categories.map(([cat, list]) => (
-              <div key={cat} className="equip-group">
-                <span className="equip-cat"><Icon name={categoryIcon(cat)} size={15} /> {cat}</span>
-                <div className="equip-chips">
-                  {list.map((e) => {
-                    const count = open.filter((n) => n.equipment_id === e.id).length;
-                    return (
-                      <button key={e.id} className={`equip-chip ${count ? 'has-notes' : ''}`} onClick={() => setParam('eq', e.id)}>
-                        {e.name}
-                        {count > 0 && <span className="badge">{count}</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </section>
-
-          {fixed.length > 0 && (
+          <div className="dash-grid">
             <section className="stack">
-              <h2 className="section-title">Recently fixed</h2>
+              <h2 className="section-title"><span className="dot dot-danger" /> Broken ({broken.length})</h2>
+              {broken.length === 0 ? <div className="all-clear"><Icon name="done" size={18} /> Nothing broken right now</div> : (
+                <div className="request-list">{broken.map((r) => <RequestCard key={r.id} request={r} onResolve={() => setResolving(r)} onChanged={reload} />)}</div>
+              )}
+            </section>
+            <section className="stack">
+              <h2 className="section-title"><span className="dot dot-warn" /> Needed ({needed.length})</h2>
+              {needed.length === 0 ? <div className="all-clear"><Icon name="done" size={18} /> Nothing needed right now</div> : (
+                <div className="request-list">{needed.map((r) => <RequestCard key={r.id} request={r} onResolve={() => setResolving(r)} onChanged={reload} />)}</div>
+              )}
+            </section>
+          </div>
+
+          {done.length > 0 && (
+            <section className="stack">
+              <h2 className="section-title">Taken care of (last 2 weeks)</h2>
               <div className="card">
                 <ul className="entries">
-                  {fixed.map((n) => (
-                    <li key={n.id} className="entry">
+                  {done.map((r) => (
+                    <li key={r.id} className="entry">
                       <span className="fixed-check"><Icon name="done" size={16} /></span>
                       <div className="entry-main">
-                        <strong>{nameOf(n.equipment_id)}</strong>
-                        <span>{n.notes}</span>
+                        <strong>{r.title}</strong>
                         <span className="muted small">
-                          Fixed {n.resolved_at ? timeAgo(n.resolved_at) : ''} by {n.resolved_by_name}
-                          {n.resolution_notes ? ` · ${n.resolution_notes}` : ''}
+                          {KIND[r.kind].done} by {r.resolved_by_name}{r.resolved_at ? `, ${timeAgo(r.resolved_at)}` : ''}
+                          {r.resolution_note ? ` · ${r.resolution_note}` : ''}
                         </span>
                       </div>
                     </li>
@@ -134,68 +116,50 @@ export default function Notes() {
         </>
       )}
 
-      {composing && <NewNoteModal equipment={equipment} initialId={params.get('eq')} onClose={() => setParam('new', null)} onSaved={reload} />}
-      {viewing && !composing && (
-        <EquipmentModal
-          equipment={viewing}
-          notes={recent.filter((n) => n.equipment_id === viewing.id)}
-          onClose={() => setParam('eq', null)}
-          onAdd={() => setParam('new', '1')}
-          onResolve={setResolving}
-          onChanged={reload}
-        />
-      )}
-      {resolving && <ResolveModal note={resolving} equipmentName={nameOf(resolving.equipment_id)} onClose={() => setResolving(null)} onSaved={reload} />}
+      {composing && <NewRequestModal kind={composing} onKind={setNew} onClose={() => setNew(null)} onSaved={reload} />}
+      {resolving && <ResolveModal request={resolving} onClose={() => setResolving(null)} onSaved={reload} />}
     </div>
   );
 }
 
-export function NoteCard({ note, equipmentName, onResolve, onChanged, compact }: { note: EquipmentLog; equipmentName: string; onResolve?: () => void; onChanged?: () => void; compact?: boolean }) {
+export function RequestCard({ request: r, onResolve, onChanged, compact }: { request: KitchenRequest; onResolve?: () => void; onChanged?: () => void; compact?: boolean }) {
   const { session, isManager, toast } = useApp();
   const confirm = useConfirm();
-  const canDelete = !compact && onChanged && (note.user_id === session?.user.id || isManager);
+  const canDelete = !compact && onChanged && (r.user_id === session?.user.id || isManager);
   async function remove() {
-    if (!(await confirm({ title: 'Delete this report?', body: 'Use "Mark fixed" instead if the problem was solved, so there is a record.', confirmLabel: 'Delete', danger: true }))) return;
-    const { error } = await supabase.from('equipment_logs').delete().eq('id', note.id);
+    if (!(await confirm({ title: 'Delete this post?', body: `Use “${KIND[r.kind].done}” instead if it was taken care of, so there’s a record.`, confirmLabel: 'Delete', danger: true }))) return;
+    const { error } = await supabase.from('kitchen_requests').delete().eq('id', r.id);
     if (error) return toast(errorMessage(error), 'error');
-    if (note.photo_path) await removeFiles([note.photo_path]);
-    toast('Report deleted');
+    if (r.photo_path) await removeFiles([r.photo_path]);
     onChanged?.();
   }
   return (
-    <article className={`note-card ${note.status === 'resolved' ? 'is-fixed' : ''}`}>
-      <div className="note-pin" aria-hidden="true" />
-      <div className="note-top">
-        <strong className="note-equip">{equipmentName}</strong>
-        <span className="muted small">{timeAgo(note.logged_at)}</span>
+    <article className={`request-card kind-${r.kind} ${compact ? 'compact' : ''}`}>
+      <div className="request-top">
+        <span className="request-kind"><Icon name={KIND[r.kind].icon} size={14} /> {KIND[r.kind].label}</span>
+        <span className="muted small">{timeAgo(r.created_at)}</span>
       </div>
-      <p className="note-text">{note.notes}</p>
-      {note.photo_path && <div className="photo-grid one"><PhotoThumb path={note.photo_path} label={equipmentName} /></div>}
-      <div className="note-foot">
-        <span className="muted small">{note.performed_by_name} · {note.shift} shift</span>
+      <strong className="request-title">{r.title}</strong>
+      {r.details && <p className="request-details">{r.details}</p>}
+      {r.photo_path && !compact && <div className="photo-grid one"><PhotoThumb path={r.photo_path} label={r.title} /></div>}
+      <div className="request-foot">
+        <span className="muted small">{r.performed_by_name}{r.shift ? ` · ${r.shift} shift` : ''}</span>
         <div className="row-gap">
-          {canDelete && <button className="icon-btn sm-lg" onClick={remove} aria-label="Delete report"><Icon name="trash" size={16} /></button>}
-          {onResolve && note.status === 'open' && <button className="btn btn-sm btn-fix" onClick={onResolve}><Icon name="done" size={16} /> Mark fixed</button>}
+          {canDelete && <button className="icon-btn sm-lg" onClick={remove} aria-label="Delete post"><Icon name="trash" size={16} /></button>}
+          {onResolve && <button className="btn btn-sm btn-fix" onClick={onResolve}><Icon name="done" size={16} /> {KIND[r.kind].done}</button>}
         </div>
       </div>
-      {note.status === 'resolved' && (
-        <div className="note-fixed">
-          <Icon name="done" size={14} /> Fixed by {note.resolved_by_name}{note.resolved_at ? ` · ${formatDateTime(note.resolved_at)}` : ''}
-          {note.resolution_notes && <div>{note.resolution_notes}</div>}
-        </div>
-      )}
     </article>
   );
 }
 
-function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: Equipment[]; initialId: string | null; onClose: () => void; onSaved: () => void }) {
+function NewRequestModal({ kind, onKind, onClose, onSaved }: { kind: RequestKind; onKind: (k: RequestKind) => void; onClose: () => void; onSaved: () => void }) {
   const { today, shift, ensureActor, actorLeadId, actorName, toast } = useApp();
-  const [equipmentId, setEquipmentId] = useState(initialId ?? equipment[0]?.id ?? '');
-  const [text, setText] = useState('');
+  const [title, setTitle] = useState('');
+  const [details, setDetails] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
   useEffect(() => {
     if (!photo) return setPreview(null);
     const u = URL.createObjectURL(photo);
@@ -204,23 +168,14 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
   }, [photo]);
 
   async function save() {
-    if (!equipmentId) return toast('Choose which equipment has the problem', 'error');
-    if (!text.trim()) return toast("Describe what's wrong", 'error');
+    if (!title.trim()) return toast(kind === 'broken' ? 'Say what’s broken' : 'Say what you need', 'error');
     if (!ensureActor()) return;
     setSaving(true);
     try {
-      const photo_path = photo ? (await uploadFile(`notes/${today}`, photo)).path : null;
-      const { error } = await supabase.from('equipment_logs').insert({
-        equipment_id: equipmentId,
-        log_type: 'issue',
-        notes: text.trim(),
-        photo_path,
-        shift,
-        log_date: today,
-        lead_id: actorLeadId,
-      });
+      const photo_path = photo ? (await uploadFile(`requests/${today}`, photo)).path : null;
+      const { error } = await supabase.from('kitchen_requests').insert({ kind, title: title.trim(), details: details.trim() || null, photo_path, shift, lead_id: actorLeadId });
       if (error) throw error;
-      toast('Issue reported');
+      toast(kind === 'broken' ? 'Posted. It stays up until someone marks it fixed.' : 'Posted. It stays up until someone marks it “Got it”.');
       onSaved();
       onClose();
     } catch (e) {
@@ -231,16 +186,19 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
   }
 
   return (
-    <Modal title="Report an equipment issue" onClose={onClose}>
+    <Modal title={kind === 'broken' ? 'Something’s broken' : 'We need something'} onClose={onClose}>
+      <div className="segmented" role="radiogroup" aria-label="What kind of post">
+        {(['broken', 'need'] as RequestKind[]).map((k) => (
+          <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => onKind(k)}>{KIND[k].post}</button>
+        ))}
+      </div>
       <label className="field">
-        <span>What's it about?</span>
-        <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
-          {equipment.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-        </select>
+        <span>{kind === 'broken' ? 'What’s broken?' : 'What do you need?'}</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={kind === 'broken' ? 'e.g. Fryer 3, or the walk-in door' : 'e.g. Oven mitts, a grill scraper'} autoFocus />
       </label>
       <label className="field">
-        <span>What’s wrong?</span>
-        <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Fryer 3 won't come up to temp. Called the tech, coming Tuesday." autoFocus />
+        <span>Details (optional)</span>
+        <textarea rows={3} value={details} onChange={(e) => setDetails(e.target.value)} placeholder={kind === 'broken' ? 'e.g. Won’t come back up to temp after a drop' : 'e.g. Ours have holes, need 2 pairs'} />
       </label>
       <div className="field">
         <span>Photo (optional)</span>
@@ -250,51 +208,35 @@ function NewNoteModal({ equipment, initialId, onClose, onSaved }: { equipment: E
           {photo && <button className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>Remove</button>}
         </div>
       </div>
-      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Sending…' : 'Report issue'}</button>
+      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Posting…' : 'Post it'}</button>
       <p className="muted small center">{shift} shift · {actorName ? `Posted as ${actorName}` : 'Choose the Shift Lead first'}</p>
     </Modal>
   );
 }
 
-function EquipmentModal({ equipment, notes, onClose, onAdd, onResolve, onChanged }: { equipment: Equipment; notes: EquipmentLog[]; onClose: () => void; onAdd: () => void; onResolve: (n: EquipmentLog) => void; onChanged: () => void }) {
-  return (
-    <Modal title={equipment.name} onClose={onClose}>
-      <button className="btn btn-primary btn-block" onClick={onAdd}><Icon name="plus" size={18} /> Report an issue with {equipment.name}</button>
-      <h3>Issues ({notes.length})</h3>
-      {notes.length === 0 ? (
-        <p className="muted">No issues in the last 60 days.</p>
-      ) : (
-        <div className="note-thread">
-          {notes.map((n) => <NoteCard key={n.id} note={n} equipmentName={equipment.name} onResolve={() => onResolve(n)} onChanged={onChanged} />)}
-        </div>
-      )}
-    </Modal>
-  );
-}
-
-function ResolveModal({ note, equipmentName, onClose, onSaved }: { note: EquipmentLog; equipmentName: string; onClose: () => void; onSaved: () => void }) {
+function ResolveModal({ request: r, onClose, onSaved }: { request: KitchenRequest; onClose: () => void; onSaved: () => void }) {
   const { ensureActor, actorLeadId, actorName, toast } = useApp();
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   async function save() {
     if (!ensureActor()) return;
     setSaving(true);
-    const { error } = await supabase.rpc('resolve_equipment_issue', { p_log_id: note.id, p_lead_id: actorLeadId, p_notes: text.trim() || null });
+    const { error } = await supabase.rpc('resolve_kitchen_request', { p_id: r.id, p_lead_id: actorLeadId, p_note: text.trim() || null });
     setSaving(false);
     if (error) return toast(errorMessage(error), 'error');
-    toast(`Marked fixed: ${equipmentName}`);
+    toast(`${KIND[r.kind].done}: ${r.title}`);
     onSaved();
     onClose();
   }
   return (
-    <Modal title={`Mark fixed: ${equipmentName}`} onClose={onClose}>
-      <div className="issue"><span>{note.notes}</span><span className="meta">Posted {formatDateTime(note.logged_at)} by {note.performed_by_name}</span></div>
+    <Modal title={`${KIND[r.kind].done}: ${r.title}`} onClose={onClose}>
+      <div className="issue"><span>{r.details ?? r.title}</span><span className="meta">Posted {formatDateTime(r.created_at)} by {r.performed_by_name}</span></div>
       <label className="field" style={{ marginTop: 16 }}>
-        <span>How was it fixed? (optional)</span>
-        <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Tech replaced the thermostat" />
+        <span>{r.kind === 'broken' ? 'How was it fixed?' : 'Where is it?'} (optional)</span>
+        <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder={r.kind === 'broken' ? 'e.g. Tech replaced the thermostat' : 'e.g. New mitts are on the shelf by the fryers'} />
       </label>
-      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Mark fixed'}</button>
-      <p className="muted small center">{actorName ? `Fixed by ${actorName}` : 'Choose the Shift Lead first'}</p>
+      <button className="btn btn-primary btn-block" onClick={save} disabled={saving}>{saving ? 'Saving…' : KIND[r.kind].done}</button>
+      <p className="muted small center">{actorName ? `Marked by ${actorName}` : 'Choose the Shift Lead first'}</p>
     </Modal>
   );
 }

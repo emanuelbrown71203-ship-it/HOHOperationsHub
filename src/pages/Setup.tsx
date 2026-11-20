@@ -7,10 +7,11 @@ import {
   ROLE_LABELS,
   SCORES_VISIBILITY_LABELS,
   type ScoresVisibility,
+  type NotifyKind,
+  DEFAULT_SETTINGS,
   type AppSettings,
   type ChecklistItem,
   type ChecklistTemplate,
-  type Equipment,
   type HohLead,
   type Profile,
   type Role,
@@ -39,7 +40,7 @@ export default function Setup() {
     ['scores', 'Lead scores', 'Who sees scores and what gets rated'],
     ['checklists', 'Checklists', 'HOH Lead checklists and photo tasks'],
     ['positions', 'Positions', 'Printed checklist for each position'],
-    ['equipment', 'Kitchen', 'Equipment, fryer timing, waste options'],
+    ['equipment', 'Waste Log', 'Items, reasons and units for the Waste Log'],
   ];
   const current = tabs.find((t) => t[0] === tab) ?? tabs[0];
 
@@ -63,7 +64,12 @@ export default function Setup() {
       {tab === 'leads' && <LeadsEditor />}
       {tab === 'checklists' && <ChecklistsEditor />}
       {tab === 'positions' && <PositionsEditor />}
-      {tab === 'equipment' && <EquipmentEditor />}
+      {tab === 'equipment' && (
+        <div className="stack">
+          <WasteItemsEditor />
+          <WasteOptions />
+        </div>
+      )}
       {tab === 'team' && isAdmin && <TeamEditor />}
     </div>
   );
@@ -286,6 +292,14 @@ function ScoresVisibilityEditor() {
 
 const TIMEZONES = ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu'];
 
+const NOTIFY_KINDS: [NotifyKind, string, string][] = [
+  ['schedule', 'Schedule sent', 'When you send the Lead Schedule, each lead hears about their own shifts.'],
+  ['reminder', 'Shift reminder', 'The scheduled lead gets a reminder an hour before their shift starts.'],
+  ['handoff_missed', 'Handoff reminder', 'If a shift’s handoff isn’t submitted 30 minutes after the shift ends, its lead gets a reminder.'],
+  ['requests', 'Broken or needed', 'Directors and admins hear when someone posts something broken or something the kitchen needs.'],
+  ['ratings', 'Shift rated', 'A lead hears when their shift is rated. The stars are included only if leads can see scores (Setup → Lead scores).'],
+];
+
 function NotificationsEditor() {
   const { settings } = useApp();
   const save = useSaveSettings();
@@ -293,9 +307,9 @@ function NotificationsEditor() {
   const zones = [...new Set([...TIMEZONES, device, settings.timezone])];
   return (
     <section className="card">
-      <SectionIntro title="Phone notifications for HOH Leads">
-        When this is on, sending the schedule tells each lead about their own shifts, and each lead gets a reminder an hour before their shift starts. A lead who is off gets nothing.
-        To get them, a lead needs their own account linked to their name (Setup → HOH Leads) and has to turn notifications on in Account on their phone.
+      <SectionIntro title="Phone notifications">
+        Each notification only goes to the people it's about. A lead who is off gets nothing.
+        To get them, a lead needs their own account linked to their name (Setup → HOH Leads), and everyone turns notifications on in Account on their own phone.
       </SectionIntro>
       <label className={`toggle ${settings.notifications_enabled ? 'toggle-on' : ''}`}>
         <input
@@ -306,6 +320,22 @@ function NotificationsEditor() {
         <span className="toggle-track" aria-hidden="true"><span /></span>
         <span>{settings.notifications_enabled ? 'On' : 'Off'}</span>
       </label>
+      {settings.notifications_enabled && (
+        <ul className="notify-kinds">
+          {NOTIFY_KINDS.map(([k, label, hint]) => {
+            const on = settings.notify_kinds?.[k] !== false;
+            return (
+              <li key={k}>
+                <label className={`toggle ${on ? 'toggle-on' : ''}`}>
+                  <input type="checkbox" checked={on} onChange={(e) => save({ notify_kinds: { ...DEFAULT_SETTINGS.notify_kinds, ...settings.notify_kinds, [k]: e.target.checked } }, `${label}: ${e.target.checked ? 'on' : 'off'}`)} />
+                  <span className="toggle-track" aria-hidden="true"><span /></span>
+                  <span><strong>{label}</strong><small>{hint}</small></span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {settings.notifications_enabled && (
         <label className="field">
           <span>Store time zone (for the reminder an hour before each shift)</span>
@@ -357,7 +387,16 @@ function ShiftsEditor() {
             {s.name === shift && <span className="pill pill-accent">Now</span>}
           </li>
         ))}
+        <li>
+          <span className="shift-chip tone-night" aria-hidden="true" />
+          <span className="inline-label">Close-out done by</span>
+          <label className="time-field">
+            <span className="sr-only">Close-out done by</span>
+            <input type="time" value={settings.close_time} onChange={(e) => e.target.value && save({ close_time: e.target.value }, `Close-out done by ${formatClock(e.target.value)}`)} />
+          </label>
+        </li>
       </ul>
+      <p className="muted small">The last shift ends at close-out. Used for the handoff reminder and to show each shift’s hours on Home.</p>
     </section>
   );
 }
@@ -705,100 +744,6 @@ function WasteItemsEditor() {
         ))}
       </ul>
     </section>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Equipment                                                           */
-/* ------------------------------------------------------------------ */
-function NumberSetting({ label, value, min, max, unit, onSave }: { label: string; value: number; min: number; max: number; unit: string; onSave: (n: number) => void }) {
-  const [v, setV] = useState(String(value));
-  useEffect(() => setV(String(value)), [value]);
-  return (
-    <label className="field number-setting">
-      <span>{label}</span>
-      <span className="hours-field">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={min}
-          max={max}
-          value={v}
-          onChange={(e) => setV(e.target.value)}
-          onBlur={() => {
-            const n = Math.round(Number(v));
-            if (!Number.isFinite(n) || n < min || n > max) setV(String(value));
-            else if (n !== value) onSave(n);
-          }}
-        />
-        {unit}
-      </span>
-    </label>
-  );
-}
-
-function FryerSettings() {
-  const { settings } = useApp();
-  const save = useSaveSettings();
-  return (
-    <section className="card">
-      <SectionIntro title="Fryer Tracker">How often each fryer should be filtered and have its oil changed. Any equipment in the “Fryer” category shows up on the Fryer Tracker.</SectionIntro>
-      <div className="field-row">
-        <NumberSetting label="Filter every" value={settings.fryer_filter_hours} min={1} max={720} unit="hours" onSave={(fryer_filter_hours) => save({ fryer_filter_hours })} />
-        <NumberSetting label="Change oil every" value={settings.fryer_oil_days} min={1} max={90} unit="days" onSave={(fryer_oil_days) => save({ fryer_oil_days })} />
-      </div>
-    </section>
-  );
-}
-
-function EquipmentEditor() {
-  const { rows, run, move } = useTable<Equipment>('equipment');
-  const confirm = useConfirm();
-  const [category, setCategory] = useState('Fryer');
-  const categories = [...new Set(['Fryer', 'Cooking', 'Holding', 'Prep', 'Refrigeration', 'Cleaning', 'Other', ...rows.map((r) => r.category)])];
-  return (
-    <div className="stack">
-    <FryerSettings />
-    <WasteItemsEditor />
-    <WasteOptions />
-    <section className="card">
-      <SectionIntro title="Equipment">The list people pick from when they report an equipment issue. Hide anything you no longer have.</SectionIntro>
-      <datalist id="equip-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-      <AddRow placeholder="Equipment name" onAdd={(name) => run(supabase.from('equipment').insert({ name, category: category.trim() || 'Other', sort_order: nextOrder(rows) }), `Added ${name}`)}>
-        <input list="equip-cats" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className="cat-input" placeholder="Category" />
-      </AddRow>
-      <ul className="edit-list">
-        {rows.map((eq, i) => (
-          <li key={eq.id} className={eq.active ? '' : 'inactive'}>
-            <Reorder index={i} count={rows.length} onMove={move} />
-            <InlineText label="Equipment name" value={eq.name} onSave={(name) => run(supabase.from('equipment').update({ name }).eq('id', eq.id))} />
-            <input
-              list="equip-cats"
-              className="cat-input"
-              defaultValue={eq.category}
-              aria-label="Category"
-              onBlur={(e) => {
-                const c = e.target.value.trim();
-                if (c && c !== eq.category) run(supabase.from('equipment').update({ category: c }).eq('id', eq.id));
-              }}
-            />
-            <ActiveToggle active={eq.active} onChange={(active) => run(supabase.from('equipment').update({ active }).eq('id', eq.id))} />
-            <button
-              className="icon-btn"
-              aria-label={`Delete ${eq.name}`}
-              onClick={async () => {
-                if (await confirm({ title: `Delete ${eq.name}?`, body: 'This deletes all of its issue reports and fryer entries too. To keep them, hide it instead.', confirmLabel: 'Delete', danger: true })) {
-                  run(supabase.from('equipment').delete().eq('id', eq.id));
-                }
-              }}
-            >
-              <Icon name="trash" size={18} />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-    </div>
   );
 }
 

@@ -20,7 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const tabs = tabItems(ctx);
   const { pathname } = useLocation();
   // Sub-pages light up the tab they belong to (fryers, waste and issues live under Kitchen).
-  const KITCHEN = ['/kitchen', '/fryers', '/waste', '/notes'];
+  const KITCHEN = ['/kitchen', '/waste', '/notes'];
   const tabFor = (to: string) => (to === '/' ? pathname === '/' : to === '/kitchen' ? KITCHEN.includes(pathname) : pathname === to || pathname.startsWith(`${to}/`));
   const moreActive = !tabs.some((t) => tabFor(t.to));
 

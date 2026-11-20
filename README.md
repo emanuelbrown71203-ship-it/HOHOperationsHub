@@ -18,19 +18,18 @@ Built with React + Vite + TypeScript on a Supabase (Postgres) backend.
 - **Ratings by category**: the incoming shift gives separate stars for each category (Stocked, Clean, Prepped, Organized by default; edit them in Setup → Store). The lead's score is the average.
 - **Lead of the Month and streaks**: last month's top-rated lead (3 rated shifts minimum) shows on Home for everyone; streaks count shifts in a row at 4 stars or better.
 - **Monthly Report** (directors and admins): one printable page with scores, handoffs, checklists, waste, equipment and training.
-- **Fryer Tracker**: one tap when a fryer is filtered or gets new oil, with what is due or overdue (intervals in Setup → Equipment).
-- **Who's Trained**: a team list (no accounts needed) against each position: in training or trained.
+- **Coaching Notes** (directors and admins): notes on each HOH Lead (coaching or praise), follow-up dates that show up under Needs attention, and an option to share a note with that lead. Shown on the lead's score page and in the Monthly Report.
 - **Photo tasks**: any checklist task can require a photo to check it off.
-- **Equipment Issues**: what used to be "Kitchen Notes"; report something broken and track it until fixed.
-- **Phone notifications**: when an admin turns them on (Setup → Store), "Send schedule to leads" notifies each lead about their own shifts only, and each lead gets a reminder an hour before their shift. A lead needs their own account linked to their name (Setup → HOH Leads) and to turn notifications on in Account; on an iPhone the app must first be added to the Home Screen.
+- **Equipment & Supplies**: a message board, not an equipment tracker. Post "something's broken" or "we need something" (oven mitts, a scraper); it stays up until someone marks it fixed or got it.
+- **Phone notifications**: when an admin turns them on (Setup → Store), each kind has its own switch: schedule sent (each lead hears about their own shifts only), a reminder an hour before a shift, a reminder if a handoff isn't submitted 30 minutes after the shift ends, broken/needed posts (to directors and admins), and a lead's shift being rated. A lead needs their own account linked to their name (Setup → HOH Leads) and to turn notifications on in Account; on an iPhone the app must first be added to the Home Screen.
 - **Live updates** across devices, **phone and tablet layouts**, and a light or dark theme per device.
 
 ## How the app is organized
 
-- **Running the shift** (HOH Leads, team members, the store tablet): Home is a "This shift" to-do list: rate the last shift, this shift's checklists, fryers that are due, and the handoff before you leave. The phone tab bar is Home, Checklists, Handoff, Kitchen (fryers, waste, equipment issues) and More.
-- **Managing** (directors and admins): Home opens on an **Overview**: the lead score record, a "Needs attention" list (unscheduled shifts, overdue fryers, open equipment issues, handoffs not submitted, shifts not rated, low scores, accounts waiting for approval) and today shift by shift. A switch flips to **Today's shift** when they're running a shift themselves. The phone tab bar is Home, Scores, Schedule, Kitchen and More.
+- **Shift ready first**: everyone's Home opens on today's AM and PM requirements side by side (rate the last shift's setup, that shift's checklists, handoff photos and notes), with the current shift highlighted and anything left from an earlier shift marked "Not finished". For HOH Leads, team members and the store tablet the phone tab bar is Home, Checklists, Handoff, Kitchen (equipment & supplies, waste) and More.
+- **Managing** (directors and admins): a switch on Home opens the **Overview**: the lead score record, a "Needs attention" list (unscheduled shifts, broken equipment and supply requests, coaching follow-ups, handoffs not submitted, shifts not rated, low scores, accounts waiting for approval) and today shift by shift. The phone tab bar is Home, Scores, Schedule, Kitchen and More.
 - The menu is grouped (Performance, Team, Run the shift, Kitchen, Admin), in the order that fits the person's role.
-- **Setup** tabs: Store, People, HOH Leads, Lead scores, Checklists, Positions, Kitchen.
+- **Setup** tabs: Store, People, HOH Leads, Lead scores, Checklists, Positions, Waste Log.
 
 ## Lead scores: how a rating is credited
 
@@ -106,6 +105,7 @@ The schema lives in `supabase/migrations/` and has already been applied to the `
 - `0010_admins.sql`: the Admin switch; only admins change Setup, team accounts and who sees lead scores
 - `0011_schedule_categories_fryers_training_push.sql`: Shift Lead schedule, ratings by category, Lead of the Month, photo tasks, Who's Trained, notification subscriptions
 - `0012_shift_reminder_job.sql`: the every-10-minutes job that sends shift reminders (notification keys live in `private.push_config`, never in this repository)
+- `0013_supplies_coaching_more_notifications.sql`: Equipment & Supplies board, Coaching Notes, more notification types and their switches
 
 Edge functions:
 

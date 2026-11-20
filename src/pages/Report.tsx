@@ -4,8 +4,7 @@ import { useApp } from '../lib/app';
 import { supabase } from '../lib/supabase';
 import { addDays } from '../lib/dates';
 import { categoryAverages, fmtAvg, monthName, monthStart, pct, prevMonth } from '../lib/useScores';
-import type { ChecklistCheck, ChecklistItem, ChecklistTemplate, Equipment, EquipmentLog, HohLead, LeadOfMonth, Position, PositionSignoff, RatingRecord, TeamMember, WasteEntry } from '../lib/types';
-import { isFryer } from './Fryers';
+import type { ChecklistCheck, ChecklistItem, ChecklistTemplate, CoachingNote, HohLead, KitchenRequest, LeadOfMonth, RatingRecord, WasteEntry } from '../lib/types';
 import { Meter } from '../components/ScoreCharts';
 import Icon from '../components/Icon';
 
@@ -20,16 +19,12 @@ interface Data {
   shifts: { lead_id: string; submitted_at: string | null; shift_date: string; shift: string }[];
   leads: HohLead[];
   waste: WasteEntry[];
-  issues: EquipmentLog[];
-  openIssues: number;
-  fryerLogs: EquipmentLog[];
-  fryers: Equipment[];
+  requests: KitchenRequest[];
+  openRequests: KitchenRequest[];
   checks: ChecklistCheck[];
   templates: ChecklistTemplate[];
   items: ChecklistItem[];
-  signoffs: PositionSignoff[];
-  members: TeamMember[];
-  positions: Position[];
+  coaching: CoachingNote[];
   winner: LeadOfMonth | null;
 }
 
@@ -45,21 +40,17 @@ export default function Report() {
   const load = useCallback(async () => {
     setD(null);
     const range = <T,>(q: T & { gte: (c: string, v: string) => T & { lte: (c: string, v: string) => PromiseLike<{ data: unknown }> } }, col: string) => q.gte(col, month).lte(col, end);
-    const [records, shifts, leads, waste, issues, open, fryerLogs, equipment, checks, templates, items, signoffs, members, positions, winner] = await Promise.all([
+    const [records, shifts, leads, waste, requests, open, checks, templates, items, coaching, winner] = await Promise.all([
       range(supabase.from('lead_rating_history').select('*') as never, 'shift_date'),
       range(supabase.from('shift_handoffs').select('lead_id,submitted_at,shift_date,shift').not('lead_id', 'is', null) as never, 'shift_date'),
       supabase.from('hoh_leads').select('*').order('sort_order'),
       range(supabase.from('waste_entries').select('*') as never, 'log_date'),
-      range(supabase.from('equipment_logs').select('*').eq('log_type', 'issue') as never, 'log_date'),
-      supabase.from('equipment_logs').select('id').eq('log_type', 'issue').eq('status', 'open'),
-      range(supabase.from('equipment_logs').select('*').in('log_type', ['filter_change', 'oil_change']) as never, 'log_date'),
-      supabase.from('equipment').select('*').eq('active', true).order('sort_order'),
+      supabase.from('kitchen_requests').select('*').gte('created_at', `${month}T00:00:00`).lte('created_at', `${end}T23:59:59`),
+      supabase.from('kitchen_requests').select('*').eq('status', 'open'),
       range(supabase.from('checklist_checks').select('*') as never, 'check_date'),
       supabase.from('checklist_templates').select('*').eq('active', true),
       supabase.from('checklist_items').select('*').eq('active', true),
-      supabase.from('position_signoffs').select('*').eq('status', 'trained').gte('updated_at', `${month}T00:00:00`).lte('updated_at', `${end}T23:59:59`),
-      supabase.from('team_members').select('*'),
-      supabase.from('positions').select('*'),
+      supabase.from('coaching_notes').select('*').gte('created_at', `${month}T00:00:00`).lte('created_at', `${end}T23:59:59`).order('created_at'),
       supabase.rpc('lead_of_month', { p_month: month }),
     ]);
     const rows = <T,>(r: { data: unknown }) => (r.data as T[]) ?? [];
@@ -68,16 +59,12 @@ export default function Report() {
       shifts: rows(shifts),
       leads: rows(leads),
       waste: rows(waste),
-      issues: rows(issues),
-      openIssues: rows(open).length,
-      fryerLogs: rows(fryerLogs),
-      fryers: rows<Equipment>(equipment).filter(isFryer),
+      requests: rows(requests),
+      openRequests: rows(open),
       checks: rows(checks),
       templates: rows(templates),
       items: rows(items),
-      signoffs: rows(signoffs),
-      members: rows(members),
-      positions: rows(positions),
+      coaching: rows(coaching),
       winner: (winner.data as LeadOfMonth) ?? null,
     });
   }, [month, end]);
@@ -130,7 +117,14 @@ function Body({ d, today, shift, month, through, cats }: { d: Data; today: strin
   }
   const top = (m: Map<string, number>, n: number) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
 
-  const fixed = d.issues.filter((i) => i.status === 'resolved').length;
+  const brokenReported = d.requests.filter((r) => r.kind === 'broken');
+  const neededReported = d.requests.filter((r) => r.kind === 'need');
+  const coachBy = new Map<string, { coaching: number; praise: number }>();
+  for (const n of d.coaching) {
+    const c = coachBy.get(n.subject_name) ?? { coaching: 0, praise: 0 };
+    c[n.kind]++;
+    coachBy.set(n.subject_name, c);
+  }
   const days = Math.max(1, Math.round((new Date(through).getTime() - new Date(month).getTime()) / 86400000) + 1);
   const daily = d.templates.filter((t) => t.frequency === 'daily');
   const dailyItems = d.items.filter((i) => daily.some((t) => t.id === i.template_id));
@@ -198,24 +192,24 @@ function Body({ d, today, shift, month, through, cats }: { d: Data; today: strin
           )}
         </section>
         <section className="card">
-          <div className="card-head"><h2><span className="dot" />Equipment</h2></div>
+          <div className="card-head"><h2><span className="dot" />Equipment &amp; supplies</h2></div>
           <ol className="plain-list">
-            <li><span>Issues reported this month</span><b>{d.issues.length}</b></li>
-            <li><span>Of those, fixed</span><b>{fixed}</b></li>
-            <li><span>Open issues right now</span><b>{d.openIssues}</b></li>
-            <li><span>Fryer filters logged</span><b>{d.fryerLogs.filter((l) => l.log_type === 'filter_change').length}</b></li>
-            <li><span>Fryer oil changes logged</span><b>{d.fryerLogs.filter((l) => l.log_type === 'oil_change').length}</b></li>
+            <li><span>Broken equipment reported this month</span><b>{brokenReported.length}</b></li>
+            <li><span>Of those, fixed</span><b>{brokenReported.filter((r) => r.status === 'done').length}</b></li>
+            <li><span>Supply requests this month</span><b>{neededReported.length}</b></li>
+            <li><span>Of those, taken care of</span><b>{neededReported.filter((r) => r.status === 'done').length}</b></li>
+            <li><span>Still open right now</span><b>{d.openRequests.length}</b></li>
           </ol>
-          {d.fryers.length > 0 && <p className="muted small">{d.fryers.length} fryers tracked.</p>}
+          {d.openRequests.length > 0 && <p className="muted small">Open: {d.openRequests.slice(0, 6).map((r) => r.title).join(', ')}{d.openRequests.length > 6 ? '…' : ''}</p>}
         </section>
       </div>
 
       <section className="card">
-        <div className="card-head"><h2><span className="dot" />Newly trained</h2><span className="muted small">{d.signoffs.length} sign-off{d.signoffs.length === 1 ? '' : 's'}</span></div>
-        {d.signoffs.length === 0 ? <p className="muted">No new sign-offs this month.</p> : (
+        <div className="card-head"><h2><span className="dot" />Coaching</h2><span className="muted small">{d.coaching.length} note{d.coaching.length === 1 ? '' : 's'} this month</span></div>
+        {d.coaching.length === 0 ? <p className="muted">No coaching notes this month.</p> : (
           <ul className="plain-list">
-            {d.signoffs.map((s) => (
-              <li key={s.id}><span><strong>{d.members.find((m) => m.id === s.member_id)?.name ?? 'Removed'}</strong> · {d.positions.find((p) => p.id === s.position_id)?.name ?? 'Removed position'}</span><span className="muted small">signed off by {s.created_by_name}</span></li>
+            {[...coachBy.entries()].map(([name, c]) => (
+              <li key={name}><span><strong>{name}</strong></span><span className="muted small">{c.coaching} coaching · {c.praise} praise</span></li>
             ))}
           </ul>
         )}

@@ -1,7 +1,11 @@
-// Phone notifications for HOH Leads.
+// Phone notifications.
 //   schedule-posted : tells each scheduled lead (and only them) which shifts they have
-//   reminders       : run every 10 minutes by the database; reminds the lead on duty an hour before their shift
+//   reminders       : every 10 minutes (database job): reminds the lead an hour before their shift, and
+//                     reminds them if their handoff isn't submitted 30 minutes after the shift ends
+//   request         : (database, on a new Equipment & Supplies post) tells directors and admins
+//   rated           : (database, when a shift is rated) tells the lead who ran it
 //   test            : sends a test notification to the caller's own devices
+// Each kind can be switched off in Setup → Store (app_settings.notify_kinds).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import webpush from 'npm:web-push@3.6.7';
 
@@ -15,6 +19,7 @@ const json = (body: unknown, status = 200) =>
 
 const APP_URL = 'https://hoh-operations-hub.vercel.app';
 const REMIND_MINUTES = 60;
+const HANDOFF_GRACE = 30;
 
 type Sub = { id: string; user_id: string; endpoint: string; p256dh: string; auth: string };
 type Payload = { title: string; body: string; url?: string; tag?: string };
@@ -49,8 +54,13 @@ Deno.serve(async (req) => {
     if (!cfg?.vapid_private) return json({ error: 'Notifications are not set up for this store yet.' }, 500);
     webpush.setVapidDetails(APP_URL, cfg.vapid_public, cfg.vapid_private);
 
-    const { data: settings } = await admin.from('app_settings').select('notifications_enabled, timezone, shifts').eq('id', 1).single();
+    const { data: settings } = await admin.from('app_settings').select('notifications_enabled, timezone, shifts, notify_kinds, close_time, scores_visibility').eq('id', 1).single();
     const enabled = !!settings?.notifications_enabled;
+    const kinds = (settings?.notify_kinds ?? {}) as Record<string, boolean>;
+    const kindOn = (k: string) => enabled && kinds[k] !== false;
+    const fromDatabase = req.headers.get('x-cron-secret') === cfg.cron_secret;
+    const leadProfile = async (leadId: string | null | undefined) =>
+      leadId ? ((await admin.from('hoh_leads').select('profile_id, name').eq('id', leadId).maybeSingle()).data as { profile_id: string | null; name: string } | null) : null;
 
     /** Sends to every device of these accounts; returns the accounts that got at least one. */
     async function sendTo(userIds: string[], payload: Payload) {
@@ -73,11 +83,48 @@ Deno.serve(async (req) => {
 
     /* ---- every 10 minutes, from the database ---- */
     if (action === 'reminders') {
-      if (req.headers.get('x-cron-secret') !== cfg.cron_secret) return json({ error: 'Not allowed' }, 403);
+      if (!fromDatabase) return json({ error: 'Not allowed' }, 403);
       if (!enabled) return json({ ok: true, skipped: 'notifications are off' });
       const now = localNow(settings!.timezone || 'America/New_York');
-      const shifts = (settings!.shifts ?? []) as { name: string; start: string }[];
+      const shifts = [...((settings!.shifts ?? []) as { name: string; start: string }[])].sort((a, b) => a.start.localeCompare(b.start));
+      const mins = (hhmm: string) => {
+        const [h, m] = hhmm.split(':').map(Number);
+        return h * 60 + (m || 0);
+      };
       let sent = 0;
+
+      // Handoff not submitted 30 minutes after a shift ends (a shift ends when the next starts; the last at close).
+      if (kindOn('handoff_missed')) {
+        for (let i = 0; i < shifts.length; i++) {
+          const s = shifts[i];
+          const start = mins(s.start);
+          let end = i < shifts.length - 1 ? mins(shifts[i + 1].start) : mins(settings!.close_time || '23:00');
+          let date = now.date;
+          if (end <= start) end += 1440; // the shift runs past midnight
+          let since = now.minutes - end;
+          if (since < 0) {
+            since += 1440; // it ended yesterday (for shifts that run past midnight)
+            date = addDays(now.date, -1);
+          }
+          if (since < HANDOFF_GRACE || since > HANDOFF_GRACE + 60) continue;
+          const { data: h } = await admin.from('shift_handoffs').select('lead_id, submitted_at').eq('shift_date', date).eq('shift', s.name).maybeSingle();
+          if (h?.submitted_at) continue;
+          let leadId = h?.lead_id as string | null | undefined;
+          if (!leadId) leadId = (await admin.from('shift_schedule').select('lead_id').eq('shift_date', date).eq('shift', s.name).maybeSingle()).data?.lead_id;
+          const lead = await leadProfile(leadId);
+          if (!lead?.profile_id) continue;
+          const { data: first } = await admin.rpc('claim_notification', { p_key: `handoff:${date}:${s.name}` });
+          if (!first) continue;
+          const reached = await sendTo([lead.profile_id], {
+            title: `${s.name} handoff not submitted`,
+            body: `Upload your ${i === shifts.length - 1 ? 'close-out' : 'shift swap'} photos and notes so the next shift knows what you left them.`,
+            url: '/#/handoff', tag: `handoff-${date}-${s.name}`,
+          });
+          sent += reached.size;
+        }
+      }
+
+      if (!kindOn('reminder')) return json({ ok: true, sent });
       for (const s of shifts) {
         const [h, m] = s.start.split(':').map(Number);
         const start = h * 60 + (m || 0);
@@ -104,6 +151,48 @@ Deno.serve(async (req) => {
       return json({ ok: true, sent });
     }
 
+    /* ---- a new Equipment & Supplies post: tell directors and admins ---- */
+    if (action === 'request') {
+      if (!fromDatabase) return json({ error: 'Not allowed' }, 403);
+      if (!kindOn('requests')) return json({ ok: true, skipped: 'off' });
+      const { data: r } = await admin.from('kitchen_requests').select('kind, title, details, performed_by_name, user_id').eq('id', String(body.id ?? '')).maybeSingle();
+      if (!r) return json({ ok: true, skipped: 'not found' });
+      const { data: people } = await admin.from('profiles').select('id, role, is_admin').neq('role', 'pending');
+      const to = ((people ?? []) as { id: string; role: string; is_admin: boolean }[])
+        .filter((p) => (p.is_admin || p.role === 'director') && p.id !== r.user_id)
+        .map((p) => p.id);
+      const reached = await sendTo(to, {
+        title: r.kind === 'broken' ? `Broken: ${r.title}` : `Needed: ${r.title}`,
+        body: `${r.details ? `${r.details} · ` : ''}from ${r.performed_by_name}`,
+        url: '/#/notes', tag: `request-${body.id}`,
+      });
+      return json({ ok: true, sent: reached.size });
+    }
+
+    /* ---- a shift was rated: tell the lead who ran it ---- */
+    if (action === 'rated') {
+      if (!fromDatabase) return json({ error: 'Not allowed' }, 403);
+      if (!kindOn('ratings')) return json({ ok: true, skipped: 'off' });
+      const handoffId = String(body.handoff_id ?? '');
+      const { data: h } = await admin.from('shift_handoffs').select('shift_date, shift, lead_id').eq('id', handoffId).maybeSingle();
+      const lead = await leadProfile(h?.lead_id);
+      if (!h || !lead?.profile_id) return json({ ok: true, skipped: 'no linked lead' });
+      const { data: first } = await admin.rpc('claim_notification', { p_key: `rated:${handoffId}` });
+      if (!first) return json({ ok: true, skipped: 'already sent' });
+      const { data: r } = await admin.from('shift_ratings').select('score, rating, comment, rated_by_name').eq('handoff_id', handoffId).maybeSingle();
+      // The stars are included only if leads are allowed to see scores.
+      const showScore = settings?.scores_visibility === 'managers' || settings?.scores_visibility === 'everyone';
+      const score = r ? Number(r.score ?? r.rating).toFixed(1) : null;
+      const reached = await sendTo([lead.profile_id], {
+        title: `Your ${h.shift} shift was rated`,
+        body: showScore && score
+          ? `${score} out of 5 from ${r!.rated_by_name}${r!.comment ? `: “${r!.comment}”` : ''}`
+          : `${dayLabel(h.shift_date)} ${h.shift}, rated by ${r?.rated_by_name ?? 'the next shift'}.`,
+        url: showScore ? '/#/scores' : '/#/handoff', tag: `rated-${handoffId}`,
+      });
+      return json({ ok: true, sent: reached.size });
+    }
+
     /* ---- everything else needs a signed-in person ---- */
     const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
     const { data: auth } = await admin.auth.getUser(token);
@@ -119,7 +208,7 @@ Deno.serve(async (req) => {
 
     if (action === 'schedule-posted') {
       if (!(me.is_admin || me.role === 'director')) return json({ error: 'Only directors and admins can send the schedule.' }, 403);
-      if (!enabled) return json({ error: 'Notifications are switched off. An admin can turn them on in Setup → Store.' }, 400);
+      if (!kindOn('schedule')) return json({ error: 'Schedule notifications are switched off. An admin can turn them on in Setup → Store.' }, 400);
       const from = String(body.from ?? ''), to = String(body.to ?? '');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return json({ error: 'Missing dates' }, 400);
       const today = localNow(settings!.timezone || 'America/New_York').date;

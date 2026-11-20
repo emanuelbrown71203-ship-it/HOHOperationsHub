@@ -6,7 +6,7 @@ import Icon from './Icon';
 
 /** Lets a person turn phone notifications on for this device (Account page). */
 export default function NotificationsCard() {
-  const { settings, myLeadId, isKitchen, toast } = useApp();
+  const { settings, myLeadId, isKitchen, canSchedule, toast } = useApp();
   const [status, setStatus] = useState<'checking' | 'on' | 'off' | 'blocked' | 'unsupported'>('checking');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -40,10 +40,11 @@ export default function NotificationsCard() {
     <section className="card">
       <h2><Icon name="bell" size={18} /> Notifications</h2>
       <p className="muted small">
-        Get a notification on {thisDevice()} when you’re put on the Shift Lead schedule, and a reminder an hour before your shift. You only hear about your own shifts.
+        Get notifications on {thisDevice()} that are about you: when you’re put on the Shift Lead schedule, a reminder before your shift, a reminder if your handoff isn’t in, and when your shift gets rated.
+        {canSchedule && ' As a director or admin you’ll also hear when someone posts something broken or something the kitchen needs.'}
       </p>
       {!settings.notifications_enabled && <p className="banner banner-info">Notifications are switched off for the store right now. An admin can turn them on in Setup → Store. You can still set this device up so it’s ready.</p>}
-      {!myLeadId && <p className="muted small">Your account isn’t linked to a name on the HOH Leads list yet, so the schedule can’t reach you. An admin links it in Setup → HOH Leads.</p>}
+      {!myLeadId && !canSchedule && <p className="muted small">Your account isn’t linked to a name on the HOH Leads list yet, so the schedule can’t reach you. An admin links it in Setup → HOH Leads.</p>}
       {status === 'checking' ? null : status === 'on' ? (
         <div className="row-gap wrap">
           <span className="pill pill-ok"><Icon name="done" size={12} /> On for this device</span>

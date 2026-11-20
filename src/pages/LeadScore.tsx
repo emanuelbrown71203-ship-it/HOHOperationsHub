@@ -6,6 +6,7 @@ import { formatDay } from '../lib/dates';
 import type { RatingRecord } from '../lib/types';
 import { categoryAverages, fmtAvg, pct, rangeWindow, statsFor, streakFor, useScoreRange, useScores, weeklySeries } from '../lib/useScores';
 import { CategoryChips } from './Handoff';
+import { LeadCoachingSection } from './Coaching';
 import { Delta, StarBreakdown, StatTile, TrendChart } from '../components/ScoreCharts';
 import Stars, { RATING_WORDS } from '../components/Stars';
 import Icon from '../components/Icon';
@@ -17,7 +18,7 @@ export default function LeadScore() {
   const { id } = useParams();
   const [params] = useSearchParams();
   const range = useScoreRange(params);
-  const { today, shift, isDirector, isAdmin, toast, settings } = useApp();
+  const { today, shift, isDirector, isAdmin, canSchedule, toast, settings } = useApp();
   const confirm = useConfirm();
   const { records, shifts, leads, loading, reload } = useScores();
   const [moving, setMoving] = useState<RatingRecord | null>(null);
@@ -136,6 +137,8 @@ export default function LeadScore() {
           </ul>
         )}
       </section>
+
+      {canSchedule && <LeadCoachingSection leadId={lead.id} leadName={lead.name} />}
 
       {moving && <ReassignModal record={moving} onClose={() => setMoving(null)} onSaved={reload} />}
     </div>

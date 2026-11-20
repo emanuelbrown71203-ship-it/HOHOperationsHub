@@ -9,7 +9,7 @@ this file is how to work on it.
 - The owner runs HOH at the store. They are **not a developer**: explain in plain language, describe what
   changed on screen, never ask them to edit code or run commands.
 - **Everything must be configurable in the app.** If a setting would need a code change, put it in Setup.
-- Labels must say what a thing does ("Equipment Issues", not "Notes"). The owner wants to understand what
+- Labels must say what a thing does ("Equipment & Supplies", not "Notes"). The owner wants to understand what
   they are tapping before they tap it.
 - They prefer a bright, colorful look (not dark). Phone and tablet both matter.
 - Keep personal details out of the repository, commits and outside services. No passwords in files.
@@ -21,12 +21,15 @@ this file is how to work on it.
 | Store tablet | `kitchen` | Shift view; entries credited to the Shift Lead picked on the device |
 | HOH Lead | `lead` | Shift view; focus of the week, shoutouts, fixing others' entries (`is_manager()`) |
 | Team member | `team_member` | Shift view |
-| Director | `director` | Always sees lead scores, moves/deletes ratings, builds the schedule (`can_schedule()`) |
+| Director | `director` | Always sees lead scores, moves/deletes ratings, builds the schedule, writes Coaching Notes (`can_schedule()`) |
 | Admin | `is_admin` flag on any role | Setup, team accounts, who sees scores. Always at least one admin. |
 | New sign-up | `pending` | Waiting screen until an admin approves |
 
-The first account ever created becomes Director + Admin. Directors and admins get the **Overview** home and
-can switch to **Today's shift**; everyone else gets the shift view. Menu, phone tabs and More page all come
+The first account ever created becomes Director + Admin. **Home opens "shift ready" for everyone**: the AM and
+PM requirements side by side (rate the last shift, that shift's checklists, handoff photos). Directors and
+admins can switch to the **Overview** (scores, needs attention); the choice is remembered per device.
+The owner does **not** want to track equipment: no equipment list, no fryer logs. "Equipment & Supplies" is
+only a message board (something broken / something needed, like oven mitts). Menu, phone tabs and More page all come
 from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Code map
@@ -41,7 +44,7 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 
 ## Database (Supabase project `khtuqripoqqlzqdkrwym`)
 
-- Schema in `supabase/migrations/` (0001-0012). Apply new ones with the Supabase `apply_migration` tool and
+- Schema in `supabase/migrations/` (0001-0013). Apply new ones with the Supabase `apply_migration` tool and
   also commit the file. **0008 has not been applied**; the owner was asked to run it in the SQL editor.
 - Row-level security on every table. Names on entries are filled in by the database (attribution triggers,
   `actor_name()`), never sent by the app. Write rules for who can do what in SQL policies/functions, then
@@ -53,8 +56,10 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
   the caller itself):
   - `account`: passkey sign-up, sign-in codes, team view, remove passkeys, delete account (admins).
   - `set-password`: admins set a temporary password for email accounts.
-  - `notify`: phone notifications (schedule posted, reminder an hour before a shift, test). A database cron
-    job calls it every 10 minutes. Signing keys live in `private.push_config` (never in the repo); the public
+  - `notify`: phone notifications: schedule sent, reminder an hour before a shift, handoff not submitted
+    30 minutes after a shift ends, new broken/needed post (to directors and admins), shift rated (to its
+    lead). Each kind has a switch in Setup → Store (`app_settings.notify_kinds`). A database cron job calls it
+    every 10 minutes; database triggers call it for new posts and ratings (`private.call_notify`). Signing keys live in `private.push_config` (never in the repo); the public
     key is in `src/lib/push.ts`.
 
 ## Checking your work
@@ -84,4 +89,7 @@ from `src/lib/nav.ts`; change navigation there, not in Layout.
 - Sample data labeled "(test)" and five test accounts are in the live database. Remove them only when the
   owner says so (they were offered a one-step cleanup).
 - Notifications haven't been confirmed on a real phone yet (owner to tap "Send a test" in Account).
-- No HOH Lead test account exists, so "You lead next" and "Your lead score" on Home haven't been seen on screen.
+- No HOH Lead test account exists, so "You lead next", "Your lead score" and "Notes for you" on Home haven't
+  been seen on screen.
+- Unused but kept (no history lost, no destructive SQL): `equipment`, `equipment_logs` (old fryer logs and
+  issues; open/recent issues were copied into `kitchen_requests`), `team_members`, `position_signoffs`.

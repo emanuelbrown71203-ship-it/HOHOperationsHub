@@ -5,8 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useRealtime } from '../lib/useRealtime';
 import { timeAgo } from '../lib/dates';
 import Icon from '../components/Icon';
-import { useFryers } from './Fryers';
-import { useKitchenNotes } from './Notes';
+import { useKitchenRequests } from './Notes';
 
 function useWasteToday(today: string) {
   const [count, setCount] = useState<number | null>(null);
@@ -24,34 +23,37 @@ function useWasteToday(today: string) {
 /** The kitchen tools in one place, each showing what needs doing. */
 export default function Kitchen() {
   const { today } = useApp();
-  const { fryers, due, loading: loadingFryers } = useFryers(today);
-  const { open, nameOf } = useKitchenNotes(today);
+  const { open } = useKitchenRequests();
   const waste = useWasteToday(today);
+  const broken = open.filter((r) => r.kind === 'broken').length;
+  const needed = open.length - broken;
 
   return (
     <div className="page narrow">
-      <div className="page-title sec-fryers">
-        <span className="page-icon"><Icon name="flame" size={22} /></span>
+      <div className="page-title sec-notes">
+        <span className="page-icon"><Icon name="wrench" size={22} /></span>
         <h1>Kitchen</h1>
       </div>
-      <div className="hub-list">
-        <Link to="/fryers" className={`hub-tile sec-fryers ${due.length ? 'is-alert' : ''}`}>
-          <span className="kpi-icon"><Icon name="flame" size={22} /></span>
-          <span className="grow">
-            <strong>Fryer Tracker</strong>
-            <small>Log when a fryer is filtered or gets new oil</small>
-          </span>
-          <span className={`hub-status ${due.length ? 'bad' : 'ok'}`}>
-            {loadingFryers ? '' : fryers.length === 0 ? 'No fryers' : due.length ? `${due.length} due` : 'Up to date'}
-          </span>
+      <div className="post-buttons">
+        <Link to="/notes?new=broken" className="post-btn kind-broken">
+          <span className="quick-icon"><Icon name="wrench" size={22} /></span>
+          <span><strong>Something’s broken</strong><small>Pass it along so it gets fixed</small></span>
         </Link>
+        <Link to="/notes?new=need" className="post-btn kind-need">
+          <span className="quick-icon"><Icon name="box" size={22} /></span>
+          <span><strong>We need something</strong><small>Oven mitts, scrapers, supplies</small></span>
+        </Link>
+      </div>
+      <div className="hub-list">
         <Link to="/notes" className={`hub-tile sec-notes ${open.length ? 'is-alert' : ''}`}>
           <span className="kpi-icon"><Icon name="wrench" size={22} /></span>
           <span className="grow">
-            <strong>Equipment Issues</strong>
-            <small>{open.length ? `Latest: ${nameOf(open[0].equipment_id)}, ${timeAgo(open[0].logged_at)}` : 'Report something broken'}</small>
+            <strong>Equipment &amp; Supplies</strong>
+            <small>{open.length ? `Latest: ${open[0].title}, ${timeAgo(open[0].created_at)}` : 'Everything broken or needed, until it’s taken care of'}</small>
           </span>
-          <span className={`hub-status ${open.length ? 'bad' : 'ok'}`}>{open.length ? `${open.length} open` : 'All fixed'}</span>
+          <span className={`hub-status ${open.length ? 'bad' : 'ok'}`}>
+            {open.length ? [broken && `${broken} broken`, needed && `${needed} needed`].filter(Boolean).join(' · ') : 'All clear'}
+          </span>
         </Link>
         <Link to="/waste" className="hub-tile sec-waste">
           <span className="kpi-icon"><Icon name="trash" size={22} /></span>
@@ -62,7 +64,6 @@ export default function Kitchen() {
           <span className="hub-status">{waste === null ? '' : `${waste} today`}</span>
         </Link>
       </div>
-      <Link to="/notes?new=1" className="btn btn-primary btn-block"><Icon name="plus" size={18} /> Report an equipment issue</Link>
     </div>
   );
 }

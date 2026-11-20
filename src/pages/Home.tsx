@@ -9,25 +9,26 @@ import { shiftTone } from '../lib/tone';
 import { previousShift } from '../lib/handoff';
 import { useSchedule } from '../lib/useSchedule';
 import { fmtAvg, statsFor, streakFor, useScores } from '../lib/useScores';
-import Ring from '../components/Ring';
 import DayDot from '../components/DayDot';
 import Icon, { type IconName } from '../components/Icon';
 import Stars from '../components/Stars';
 import { FocusCard, ShoutoutCard } from '../components/HomeCards';
 import { ScoreboardBody } from '../components/ScoreboardCard';
 import LeadOfMonthBanner from '../components/LeadOfMonth';
-import { useFryers } from './Fryers';
-import { NoteCard, useKitchenNotes } from './Notes';
+import { RequestCard, useKitchenRequests } from './Notes';
+import { NoteCard as CoachNoteCard, followUpDue, useCoachingNotes } from './Coaching';
+import type { KitchenRequest } from '../lib/types';
 import { useHandoffs } from './Handoff';
 
 type HomeView = 'overview' | 'shift';
-const VIEW_KEY = 'hoh.homeView';
+// Everyone opens on the shift; directors and admins can switch to the Overview (remembered per device).
+const VIEW_KEY = 'hoh.homeView2';
 
 function readView(): HomeView {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'shift' ? 'shift' : 'overview';
+    return localStorage.getItem(VIEW_KEY) === 'overview' ? 'overview' : 'shift';
   } catch {
-    return 'overview';
+    return 'shift';
   }
 }
 
@@ -53,11 +54,11 @@ export default function Home() {
         <div className="home-head">
           <h1>{hello}{first ? `, ${first}` : ''}</h1>
           <div className="segmented home-switch" role="tablist" aria-label="Home view">
+            <button role="tab" aria-selected={!showOverview} className={!showOverview ? 'on' : ''} onClick={() => setView('shift')}>
+              <Icon name="clock" size={16} /> Today’s shifts
+            </button>
             <button role="tab" aria-selected={showOverview} className={showOverview ? 'on' : ''} onClick={() => setView('overview')}>
               <Icon name="trophy" size={16} /> Overview
-            </button>
-            <button role="tab" aria-selected={!showOverview} className={!showOverview ? 'on' : ''} onClick={() => setView('shift')}>
-              <Icon name="clock" size={16} /> Today’s shift
             </button>
           </div>
         </div>
@@ -68,136 +69,9 @@ export default function Home() {
 }
 
 /* ================================================================== */
-/* Running the shift: HOH Leads, team members, the store tablet        */
+/* Shift ready: what the AM and PM shifts must get done today          */
 /* ================================================================== */
-function ShiftView() {
-  const { today, shift, shiftNames, settings, actorName, isKitchen, leads, myLeadId, canViewScores } = useApp();
-  const { progress } = useChecklists(today);
-  const { open: openIssues, nameOf } = useKitchenNotes(today);
-  const { byKey, photosFor } = useHandoffs(today);
-  const { fryers, due } = useFryers(today);
-  const { entries, entryFor } = useSchedule(addDays(today, -1), addDays(today, 13));
-
-  const tone = shiftTone(shiftNames, shift);
-  const shiftDef = settings.shifts.find((s) => s.name === shift);
-  const shiftIndex = shiftNames.indexOf(shift);
-  const isClose = shiftIndex === shiftNames.length - 1;
-  const leadName = (id?: string | null) => leads.find((l) => l.id === id)?.name ?? null;
-
-  const mine = progress.filter((p) => (p.template.shift === shift || p.template.shift === 'Any') && p.total > 0);
-  const done = mine.reduce((n, p) => n + p.done, 0);
-  const total = mine.reduce((n, p) => n + p.total, 0);
-
-  const prev = previousShift(today, shift, shiftNames);
-  const prevHandoff = byKey.get(`${prev.date}|${prev.shift}`);
-  const prevLeadId = prevHandoff?.lead_id ?? entryFor(prev.date, prev.shift)?.lead_id ?? null;
-  const prevLead = prevHandoff?.lead_name ?? leadName(prevLeadId);
-  const myHandoff = byKey.get(`${today}|${shift}`);
-  const myPhotos = photosFor(myHandoff).length;
-
-  /* ---- the to-do list for this shift ---- */
-  const todos: Todo[] = [];
-  if (!(myLeadId && prevLeadId === myLeadId)) {
-    todos.push({
-      key: 'rate',
-      done: !!prevHandoff?.rated_at,
-      icon: 'star',
-      title: `Rate the ${prev.shift} shift’s setup`,
-      sub: prevHandoff?.rated_at ? `Rated by ${prevHandoff.rated_by_name}` : prevLead ? `Shift Lead ${prevLead} · counts toward their score` : 'How did you find the kitchen when you came in?',
-      to: '/handoff',
-    });
-  }
-  for (const p of mine) {
-    todos.push({
-      key: p.template.id,
-      done: p.done === p.total,
-      icon: 'check',
-      title: p.template.name,
-      sub: p.done === p.total ? 'All tasks done' : `${p.done} of ${p.total} tasks${p.template.frequency === 'weekly' ? ' · this week' : ''}`,
-      to: `/checklists/${p.template.id}`,
-    });
-  }
-  if (fryers.length > 0) {
-    todos.push({
-      key: 'fryers',
-      done: due.length === 0,
-      icon: 'flame',
-      title: due.length === 0 ? 'Fryers up to date' : `${due.length} fryer job${due.length === 1 ? '' : 's'} due`,
-      sub: due.length === 0 ? 'Nothing is due to filter or change' : due.map((d) => `${d.fryer.name} ${d.job === 'filter_change' ? 'filter' : 'oil'}`).join(' · '),
-      to: '/fryers',
-    });
-  }
-  todos.push({
-    key: 'handoff',
-    done: !!myHandoff?.submitted_at,
-    icon: 'camera',
-    title: `${isClose ? 'Close-out' : 'Shift swap'} photos and notes`,
-    sub: myHandoff?.submitted_at
-      ? `Submitted by ${myHandoff.submitted_by_name} at ${formatTime(myHandoff.submitted_at)}`
-      : `${myPhotos ? `${myPhotos} photo${myPhotos === 1 ? '' : 's'} so far` : 'Photos required'} · before you leave`,
-    to: '/handoff',
-  });
-
-  const scheduled = shiftNames.map((s) => ({ shift: s, name: byKey.get(`${today}|${s}`)?.lead_name ?? leadName(entryFor(today, s)?.lead_id) }));
-  const myNext = !isKitchen && myLeadId
-    ? entries.filter((e) => e.lead_id === myLeadId && (e.shift_date > today || (e.shift_date === today && shiftNames.indexOf(e.shift) >= shiftIndex)))[0]
-    : undefined;
-
-  return (
-    <>
-      <section className={`hero tone-${tone}`}>
-        <div className="hero-sky" aria-hidden="true"><span className="hero-sun" /></div>
-        <div className="hero-main">
-          <div className="hero-eyebrow">
-            <span>{formatDay(today)}</span>
-            <DayDot date={today} />
-          </div>
-          <h1 className="hero-title">{shift} shift</h1>
-          <div className="hero-lead">
-            <Icon name="user" size={18} />
-            {actorName ? <span>{isKitchen ? 'Shift Lead' : 'Logging as'} <strong>{actorName}</strong></span> : <span>No Shift Lead selected</span>}
-            {shiftDef && <span className="hero-since">· started {formatClock(shiftDef.start)}</span>}
-          </div>
-        </div>
-        <Link to="/checklists" className="ticket">
-          <span className="ticket-head">HOH Lead · {shift}</span>
-          <Ring done={done} total={total} size={96} stroke={9} label={`${done} of ${total} tasks`} />
-          <span className="ticket-count"><b>{done}</b> of {total} tasks</span>
-        </Link>
-      </section>
-
-      <Link to="/schedule" className="today-leads" aria-label="Today's Shift Leads. Open the schedule.">
-        <span className="eyebrow"><Icon name="calendar" size={14} /> Today’s Shift Leads</span>
-        {scheduled.map((s) => (
-          <span key={s.shift} className={`today-lead ${s.shift === shift ? 'now' : ''}`}>{s.shift} <strong>{s.name ?? 'Not set'}</strong></span>
-        ))}
-        {myNext && (
-          <span className="today-lead mine">
-            You lead next: <strong>{myNext.shift_date === today ? 'today' : myNext.shift_date === addDays(today, 1) ? 'tomorrow' : formatDay(myNext.shift_date)} {myNext.shift}</strong>
-          </span>
-        )}
-        <Icon name="chevron" size={16} />
-      </Link>
-
-      <div className="dash-grid">
-        <TodoCard todos={todos} />
-        <div className="stack">
-          <FocusCard />
-          <ShoutoutCard />
-        </div>
-      </div>
-
-      <LeadOfMonthBanner />
-
-      <div className="dash-grid">
-        <IssuesCard open={openIssues} nameOf={nameOf} />
-        {canViewScores && !isKitchen && myLeadId && <MyScoreCard leadId={myLeadId} />}
-      </div>
-    </>
-  );
-}
-
-interface Todo {
+interface Req {
   key: string;
   done: boolean;
   icon: IconName;
@@ -206,52 +80,185 @@ interface Todo {
   to: string;
 }
 
-function TodoCard({ todos }: { todos: Todo[] }) {
-  const left = todos.filter((t) => !t.done);
-  const sorted = [...left, ...todos.filter((t) => t.done)];
-  const doneCount = todos.length - left.length;
+function ShiftView() {
+  const { today, shift, shiftNames, settings, actorName, isKitchen, leads, myLeadId, canViewScores } = useApp();
+  const { progress } = useChecklists(today);
+  const { open: requests } = useKitchenRequests();
+  const { byKey, photosFor } = useHandoffs(today);
+  const { entries, entryFor } = useSchedule(addDays(today, -1), addDays(today, 13));
+
+  const tone = shiftTone(shiftNames, shift);
+  const current = shiftNames.indexOf(shift);
+  const leadName = (id?: string | null) => leads.find((l) => l.id === id)?.name ?? null;
+  const sorted = [...settings.shifts].sort((a, b) => a.start.localeCompare(b.start));
+
+  const cards = shiftNames.map((s, j) => {
+    const def = sorted.find((x) => x.name === s);
+    const next = sorted[sorted.findIndex((x) => x.name === s) + 1];
+    const endsAt = next ? next.start : settings.close_time;
+    const isClose = j === shiftNames.length - 1;
+    const h = byKey.get(`${today}|${s}`);
+    const lead = h?.lead_name ?? leadName(entryFor(today, s)?.lead_id);
+    const prev = previousShift(today, s, shiftNames);
+    const prevH = byKey.get(`${prev.date}|${prev.shift}`);
+    const photos = photosFor(h).length;
+
+    const reqs: Req[] = [];
+    reqs.push({
+      key: 'rate',
+      done: !!prevH?.rated_at,
+      icon: 'star',
+      title: `Rate the ${prev.shift} shift’s setup`,
+      sub: prevH?.rated_at ? `Rated by ${prevH.rated_by_name}` : `${prev.date === today ? 'This morning' : 'Last night'}${prevH?.lead_name ? ` · led by ${prevH.lead_name}` : ''}`,
+      to: '/handoff',
+    });
+    for (const p of progress.filter((x) => x.template.shift === s && x.total > 0)) {
+      reqs.push({
+        key: p.template.id,
+        done: p.done === p.total,
+        icon: 'check',
+        title: p.template.name,
+        sub: p.done === p.total ? 'All tasks done' : `${p.done} of ${p.total} tasks${p.template.frequency === 'weekly' ? ' · this week' : ''}`,
+        to: `/checklists/${p.template.id}`,
+      });
+    }
+    reqs.push({
+      key: 'handoff',
+      done: !!h?.submitted_at,
+      icon: 'camera',
+      title: `${isClose ? 'Close-out' : 'Shift swap'} photos and notes`,
+      sub: h?.submitted_at ? `Submitted by ${h.submitted_by_name} at ${formatTime(h.submitted_at)}` : photos ? `${photos} photo${photos === 1 ? '' : 's'} so far · not submitted` : 'Photos required before you leave',
+      to: '/handoff',
+    });
+    const left = reqs.filter((r) => !r.done).length;
+    const status = j === current ? 'now' : j < current ? (left ? 'missed' : 'done') : 'later';
+    return { s, def, endsAt, lead, reqs, left, status, tone: shiftTone(shiftNames, s) };
+  });
+
+  const anyShift = progress.filter((p) => !shiftNames.includes(p.template.shift) && p.total > 0);
+  const myNext = !isKitchen && myLeadId
+    ? entries.filter((e) => e.lead_id === myLeadId && (e.shift_date > today || (e.shift_date === today && shiftNames.indexOf(e.shift) >= current)))[0]
+    : undefined;
+
   return (
-    <section className="card todo-card sec-checklists">
-      <div className="card-head">
-        <h2><span className="dot" />This shift</h2>
-        <span className={`todo-count ${left.length === 0 ? 'all' : ''}`}>{left.length === 0 ? 'All done' : `${doneCount} of ${todos.length} done`}</span>
-      </div>
-      <div className="todo-bar" aria-hidden="true"><span style={{ width: `${(doneCount / Math.max(1, todos.length)) * 100}%` }} /></div>
-      <ul className="todo-list">
-        {sorted.map((t) => (
-          <li key={t.key}>
-            <Link to={t.to} className={`todo-row ${t.done ? 'done' : ''}`}>
-              <span className="todo-icon" aria-hidden="true"><Icon name={t.done ? 'done' : t.icon} size={18} /></span>
-              <span className="todo-text">
-                <strong>{t.title}</strong>
-                <small>{t.sub}</small>
+    <>
+      <section className={`shift-banner tone-${tone}`}>
+        <div>
+          <span className="shift-banner-date">{formatDay(today)} <DayDot date={today} /></span>
+          <h1>{shift} shift <span className="pill">Now</span></h1>
+        </div>
+        <div className="shift-banner-who">
+          <Icon name="user" size={18} />
+          <span>
+            {actorName ? <>{isKitchen ? 'Shift Lead' : 'Logging as'} <strong>{actorName}</strong></> : 'No Shift Lead selected'}
+            {myNext && (
+              <small>You lead next: {myNext.shift_date === today ? 'today' : myNext.shift_date === addDays(today, 1) ? 'tomorrow' : formatDay(myNext.shift_date)} {myNext.shift}</small>
+            )}
+          </span>
+        </div>
+      </section>
+
+      <section className="req-board" aria-label="Today's shift requirements">
+        {cards.map((c) => (
+          <article key={c.s} className={`card req-card tone-${c.tone} status-${c.status}`}>
+            <header className="req-head">
+              <span className="req-shift"><i className="req-dot" aria-hidden="true" />{c.s} shift</span>
+              <span className={`req-status ${c.status}`}>
+                {c.status === 'now' ? 'Now' : c.status === 'later' ? 'Later today' : c.status === 'done' ? 'All done' : 'Not finished'}
               </span>
-              <span className="sr-only">{t.done ? 'Done' : 'To do'}</span>
-              <Icon name="chevron" size={18} />
-            </Link>
-          </li>
+            </header>
+            <p className="req-meta">
+              {c.def ? `${formatClock(c.def.start)} – ${formatClock(c.endsAt)}` : ''} · Lead <strong>{c.lead ?? 'not set'}</strong>
+            </p>
+            <div className="todo-bar" aria-hidden="true"><span style={{ width: `${((c.reqs.length - c.left) / Math.max(1, c.reqs.length)) * 100}%` }} /></div>
+            <span className="req-count">{c.left === 0 ? 'Everything done' : `${c.reqs.length - c.left} of ${c.reqs.length} done`}</span>
+            <ul className="todo-list">
+              {c.reqs.map((r) => (
+                <li key={r.key}>
+                  <Link to={r.to} className={`todo-row ${r.done ? 'done' : ''}`}>
+                    <span className="todo-icon" aria-hidden="true"><Icon name={r.done ? 'done' : r.icon} size={18} /></span>
+                    <span className="todo-text">
+                      <strong>{r.title}</strong>
+                      <small>{r.sub}</small>
+                    </span>
+                    <span className="sr-only">{r.done ? 'Done' : 'To do'}</span>
+                    <Icon name="chevron" size={18} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </article>
         ))}
-      </ul>
+      </section>
+
+      {anyShift.length > 0 && (
+        <div className="any-shift">
+          <span className="eyebrow">Any shift</span>
+          {anyShift.map((p) => (
+            <Link key={p.template.id} to={`/checklists/${p.template.id}`} className={`any-chip ${p.done === p.total ? 'done' : ''}`}>
+              <Icon name={p.done === p.total ? 'done' : 'check'} size={14} /> {p.template.name} <b>{p.done}/{p.total}</b>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      <div className="dash-grid">
+        <RequestsCard open={requests} />
+        <div className="stack">
+          <FocusCard />
+          <ShoutoutCard />
+        </div>
+      </div>
+
+      <LeadOfMonthBanner />
+
+      {!isKitchen && myLeadId && (
+        <div className="dash-grid">
+          {canViewScores && <MyScoreCard leadId={myLeadId} />}
+          <NotesForYou leadId={myLeadId} />
+        </div>
+      )}
+    </>
+  );
+}
+
+function RequestsCard({ open }: { open: KitchenRequest[] }) {
+  const broken = open.filter((r) => r.kind === 'broken').length;
+  const needed = open.length - broken;
+  return (
+    <section className="card sec-notes notes-panel">
+      <div className="card-head">
+        <h2><span className="dot dot-danger" />Equipment &amp; supplies</h2>
+        <Link to="/notes" className="link-more">See all <Icon name="chevron" size={16} /></Link>
+      </div>
+      {open.length === 0 ? (
+        <div className="all-clear"><Icon name="done" size={18} /> Nothing broken or needed right now</div>
+      ) : (
+        <>
+          <p className="muted small">{broken ? `${broken} broken` : ''}{broken && needed ? ' · ' : ''}{needed ? `${needed} needed` : ''}</p>
+          <div className="request-list">
+            {open.slice(0, 3).map((r) => <RequestCard key={r.id} request={r} compact />)}
+            {open.length > 3 && <Link to="/notes" className="link-more">+{open.length - 3} more</Link>}
+          </div>
+        </>
+      )}
+      <div className="row-gap wrap">
+        <Link to="/notes?new=broken" className="btn btn-ghost grow"><Icon name="wrench" size={18} /> Something’s broken</Link>
+        <Link to="/notes?new=need" className="btn btn-ghost grow"><Icon name="box" size={18} /> We need something</Link>
+      </div>
     </section>
   );
 }
 
-function IssuesCard({ open, nameOf }: { open: ReturnType<typeof useKitchenNotes>['open']; nameOf: (id: string) => string }) {
+/** Coaching notes a director chose to share with this lead. */
+function NotesForYou({ leadId }: { leadId: string }) {
+  const { notes } = useCoachingNotes(leadId);
+  const recent = notes.filter((n) => n.shared_with_lead && Date.now() - new Date(n.created_at).getTime() < 30 * 864e5).slice(0, 3);
+  if (recent.length === 0) return null;
   return (
-    <section className="card sec-notes notes-panel">
-      <div className="card-head">
-        <h2><span className="dot dot-danger" />Equipment issues{open.length > 0 && ` (${open.length})`}</h2>
-        <Link to="/notes" className="link-more">See all <Icon name="chevron" size={16} /></Link>
-      </div>
-      {open.length === 0 ? (
-        <div className="all-clear"><Icon name="done" size={18} /> Nothing broken right now</div>
-      ) : (
-        <div className="note-board compact">
-          {open.slice(0, 2).map((n) => <NoteCard key={n.id} note={n} equipmentName={nameOf(n.equipment_id)} compact />)}
-          {open.length > 2 && <Link to="/notes" className="link-more">+{open.length - 2} more</Link>}
-        </div>
-      )}
-      <Link to="/notes?new=1" className="btn btn-ghost btn-block"><Icon name="plus" size={18} /> Report an equipment issue</Link>
+    <section className="card sec-scores">
+      <div className="card-head"><h2><span className="dot" />Notes for you</h2></div>
+      <div className="coach-list">{recent.map((n) => <CoachNoteCard key={n.id} note={n} compact />)}</div>
     </section>
   );
 }
@@ -311,8 +318,8 @@ function Overview({ onShiftView }: { onShiftView: () => void }) {
   const { today, shift, shiftNames, settings, leads, isAdmin } = useApp();
   const scores = useScores();
   const { entries, entryFor } = useSchedule(addDays(today, -7), addDays(today, 6));
-  const { open: openIssues, nameOf } = useKitchenNotes(today);
-  const { due } = useFryers(today);
+  const { open: requests } = useKitchenRequests();
+  const { notes: coaching } = useCoachingNotes();
   const { byKey, ratingFor } = useHandoffs(today);
   const { progress } = useChecklists(today);
   const pending = usePendingCount(isAdmin);
@@ -340,12 +347,18 @@ function Overview({ onShiftView }: { onShiftView: () => void }) {
   if (settings.notifications_enabled && unsent > 0) {
     items.push({ key: 'unsent', level: 'warn', icon: 'bell', title: `Schedule not sent for ${unsent} shift${unsent === 1 ? '' : 's'}`, sub: 'Send it so each lead hears about their shifts', to: '/schedule' });
   }
-  if (due.length) {
-    items.push({ key: 'fryers', level: 'danger', icon: 'flame', title: `${due.length} fryer job${due.length === 1 ? '' : 's'} overdue`, sub: due.map((d) => `${d.fryer.name} ${d.job === 'filter_change' ? 'filter' : 'oil'}`).join(' · '), to: '/fryers' });
+  const broken = requests.filter((r) => r.kind === 'broken');
+  const needed = requests.filter((r) => r.kind === 'need');
+  if (broken.length) {
+    const oldest = broken[broken.length - 1];
+    items.push({ key: 'broken', level: 'danger', icon: 'wrench', title: `${broken.length} thing${broken.length === 1 ? '' : 's'} broken`, sub: broken.slice(0, 3).map((r) => r.title).join(' · ') + ` · oldest ${timeAgo(oldest.created_at)}`, to: '/notes' });
   }
-  if (openIssues.length) {
-    const oldest = openIssues[openIssues.length - 1];
-    items.push({ key: 'issues', level: 'warn', icon: 'wrench', title: `${openIssues.length} equipment issue${openIssues.length === 1 ? '' : 's'} open`, sub: `Oldest: ${nameOf(oldest.equipment_id)}, reported ${timeAgo(oldest.logged_at)}`, to: '/notes' });
+  if (needed.length) {
+    items.push({ key: 'needed', level: 'warn', icon: 'box', title: `${needed.length} supply request${needed.length === 1 ? '' : 's'}`, sub: needed.slice(0, 3).map((r) => r.title).join(' · '), to: '/notes' });
+  }
+  const followUps = coaching.filter((n) => followUpDue(n, today));
+  if (followUps.length) {
+    items.push({ key: 'follow', level: 'warn', icon: 'edit', title: `${followUps.length} coaching follow-up${followUps.length === 1 ? '' : 's'} due`, sub: [...new Set(followUps.map((n) => n.subject_name))].join(', '), to: '/coaching' });
   }
   let notSubmitted = 0;
   let notRated = 0;
@@ -431,7 +444,7 @@ function Overview({ onShiftView }: { onShiftView: () => void }) {
               </li>
             ))}
           </ul>
-          <button className="btn btn-ghost btn-block" onClick={onShiftView}><Icon name="clock" size={18} /> Open today’s shift view</button>
+          <button className="btn btn-ghost btn-block" onClick={onShiftView}><Icon name="clock" size={18} /> See today’s shift requirements</button>
         </section>
       </div>
 

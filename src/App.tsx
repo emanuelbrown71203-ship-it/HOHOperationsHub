@@ -15,8 +15,7 @@ import Scores from './pages/Scores';
 import LeadScore from './pages/LeadScore';
 import Setup from './pages/Setup';
 import Schedule from './pages/Schedule';
-import Fryers from './pages/Fryers';
-import Training from './pages/Training';
+import Coaching from './pages/Coaching';
 import Report from './pages/Report';
 import Kitchen from './pages/Kitchen';
 import Account from './pages/Account';
@@ -46,8 +45,9 @@ export default function App() {
         <Route path="/more" element={<More />} />
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/kitchen" element={<Kitchen />} />
-        <Route path="/fryers" element={<Fryers />} />
-        <Route path="/training" element={<Training />} />
+        <Route path="/coaching" element={canSchedule ? <Coaching /> : <Navigate to="/" replace />} />
+        <Route path="/fryers" element={<Navigate to="/kitchen" replace />} />
+        <Route path="/training" element={<Navigate to="/" replace />} />
         <Route path="/report" element={canSchedule ? <Report /> : <Navigate to="/" replace />} />
         <Route path="/scores" element={canViewScores ? <Scores /> : <Navigate to="/" replace />} />
         <Route path="/scores/:id" element={canViewScores ? <LeadScore /> : <Navigate to="/" replace />} />
